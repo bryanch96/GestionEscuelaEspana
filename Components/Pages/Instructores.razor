@@ -1,0 +1,120 @@
+﻿@page "/instructores"
+@using GestionEscuelaEspana.Models
+@using GestionEscuelaEspana.Data
+@inject DatabaseService DB
+
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Gestión de Instructores</h2>
+    </div>
+
+    <div class="card p-3 mb-4 style-card">
+        <h5>@((nuevoInstructor.Id == 0) ? "Registrar Nuevo Instructor" : "Editar Instructor")</h5>
+        <EditForm Model="nuevoInstructor" OnValidSubmit="GuardarInstructor">
+            <div class="row">
+                <div class="col-md-4 mb-2">
+                    <label>Nombre Completo:</label>
+                    <input type="text" class="form-control" @bind="nuevoInstructor.Nombre" required />
+                </div>
+                <div class="col-md-4 mb-2">
+                    <label>Teléfono:</label>
+                    <input type="text" class="form-control" @bind="nuevoInstructor.Telefono" required />
+                </div>
+                <div class="col-md-4 mb-2">
+                    <label>Licencia Autorizada:</label>
+                    <input type="text" class="form-control" @bind="nuevoInstructor.Licencia" placeholder="Ej: B1, A3" required />
+                </div>
+            </div>
+            <div class="mt-3 d-flex gap-2">
+                <button type="submit" class="btn btn-primary" style="background-color: #0284c7; border: none;">Guardar</button>
+                @if (nuevoInstructor.Id != 0)
+                {
+                    <button type="button" class="btn btn-secondary" @onclick="LimpiarFormulario">Cancelar</button>
+                }
+            </div>
+        </EditForm>
+    </div>
+
+    <div class="table-responsive">
+        <table class="db-table">
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Teléfono</th>
+                    <th>Licencia</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var inst in listaInstructores)
+                {
+                    <tr>
+                        <td><strong>@inst.Nombre</strong></td>
+                        <td>@inst.Telefono</td>
+                        <td><span class="badge" style="background-color: #e2e8f0; color: #1e293b;">@inst.Licencia</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary me-2" @onclick="() => Editar(inst)">Editar</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => Eliminar(inst.Id)">Borrar</button>
+                        </td>
+                    </tr>
+                }
+                @if (!listaInstructores.Any())
+                {
+                    <tr><td colspan="4" style="text-align:center; color:#888;">No hay instructores registrados.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private Instructor nuevoInstructor = new();
+    private List<Instructor> listaInstructores = new();
+
+    protected override void OnInitialized()
+    {
+        RefrescarLista();
+    }
+
+    private void RefrescarLista()
+    {
+        listaInstructores = DB.GetInstructores();
+    }
+
+    private void GuardarInstructor()
+    {
+        DB.GuardarInstructor(nuevoInstructor);
+        LimpiarFormulario();
+        RefrescarLista();
+    }
+
+    private void Editar(Instructor inst)
+    {
+        nuevoInstructor = new Instructor 
+        { 
+            Id = inst.Id, 
+            Nombre = inst.Nombre, 
+            Telefono = inst.Telefono, 
+            Licencia = inst.Licencia 
+        };
+    }
+
+    private void Eliminar(int id)
+    {
+        DB.EliminarInstructor(id);
+
+        // Si estábamos editando el instructor que se eliminó, limpiamos el formulario
+        if (nuevoInstructor.Id == id)
+        {
+            LimpiarFormulario();
+        }
+
+        RefrescarLista();
+    }
+
+    private void LimpiarFormulario()
+    {
+        nuevoInstructor = new Instructor();
+ 
+    }
+}

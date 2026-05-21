@@ -1,0 +1,131 @@
+﻿@page "/citas"
+@page "/citas/{Id:int}"
+@using GestionEscuelaEspana.Models
+@using GestionEscuelaEspana.Data
+@using Radzen
+@using Radzen.Blazor
+@inject DatabaseService DB
+@inject NavigationManager Navigation
+
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>@(Id == 0 ? "Agendamiento de Citas" : "Modificar Cita") - Escuela España</h2>
+        <button class="btn btn-outline-secondary" @onclick="IrALista">← Volver al Historial</button>
+    </div>
+
+    <div class="card p-4 mb-4 style-card" style="background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+        <h5>Formulario de Reserva</h5>
+        <EditForm Model="cita" OnValidSubmit="GuardarCita">
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Nombre del Cliente</label>
+                    <input type="text" class="form-control" @bind="cita.ClienteNombre" required />
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Número de Celular</label>
+                    <input type="text" class="form-control" @bind="cita.ClienteTelefono" required />
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Precio (₡)</label>
+                    <input type="number" class="form-control" @bind="cita.Precio" required />
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Tipo de Vehículo</label>
+                    <RadzenDropDown @bind-Value="@cita.TipoVehiculo" Data="@tiposVehiculo" Style="width:100%;" />
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Plantel de Pruebas</label>
+                    <RadzenDropDown @bind-Value="@cita.Plantel" Data="@planteles" Style="width:100%;" />
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Instructor Asignado</label>
+                    <RadzenDropDown @bind-Value="@cita.InstructorId" Data="@instructores" TextProperty="Nombre" ValueProperty="Id" Style="width:100%;" Placeholder="Seleccione..." />
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label class="form-label">Estado de Cita</label>
+                    <RadzenDropDown @bind-Value="@cita.Estado" Data="@estadosCita" Style="width:100%;" />
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Fecha de Cita</label>
+                    <input type="date" class="form-control" @bind="fechaAux" required />
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Hora Inicio</label>
+                    <input type="time" class="form-control" @bind="horaInicioAux" required />
+                </div>
+                <div class="col-md-4 mb-3">
+                    <label class="form-label">Hora Finalización</label>
+                    <input type="time" class="form-control" @bind="horaFinAux" required />
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-success mt-2" style="background-color: #10b981; border: none; padding: 10px 24px;">
+                @(Id == 0 ? "Agendar Cita" : "Guardar Cambios")
+            </button>
+            <button type="button" class="btn btn-secondary mt-2 ms-2" @onclick="IrALista">Cancelar</button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    // Captura el ID opcional desde la URL automáticamente
+    [Parameter] public int Id { get; set; }
+
+    private Cita cita = new() { Estado = "Pendiente" };
+    private List<Instructor> instructores = new(); //instructor es el nombre del modelo
+
+    private List<string> tiposVehiculo = new() { "Automóvil (B-1)", "Motocicleta (A-2)", "Motocicleta (A-3)" };
+    private List<string> planteles = new() { "San José", "Heredia", "Cartago", "Alajuela", "Guanacaste", "Puntarenas", "Limón" };
+    private List<string> estadosCita = new() { "Pendiente", "Completada", "Cancelada" };
+
+    private DateTime fechaAux { get; set; } = DateTime.Today;
+    private DateTime horaInicioAux { get; set; } = DateTime.Today;
+    private DateTime horaFinAux { get; set; } = DateTime.Today;
+
+    protected override void OnInitialized()
+    {
+        instructores = DB.GetInstructores() ?? new List<Instructor>();
+
+        // Si la URL trae un ID, significa que el usuario viene a EDITAR
+        if (Id != 0)
+        {
+            var citaEncontrada = DB.GetCitas()?.FirstOrDefault(c => c.Id == Id);
+            if (citaEncontrada != null)
+            {
+                cita = citaEncontrada;
+                fechaAux = cita.Fecha;
+                horaInicioAux = DateTime.Today.Add(cita.HoraInicio);
+                horaFinAux = DateTime.Today.Add(cita.HoraFin);
+            }
+        }
+        else
+        {
+            // Valores por defecto para una cita nueva
+            cita.TipoVehiculo = tiposVehiculo.First();
+            cita.Plantel = planteles.First();
+        }
+    }
+
+    private void GuardarCita()
+    {
+        cita.Fecha = fechaAux;
+        cita.HoraInicio = horaInicioAux.TimeOfDay;
+        cita.HoraFin = horaFinAux.TimeOfDay;
+
+        DB.GuardarCita(cita);
+        
+        // Al terminar de guardar, volvemos automáticamente al historial
+        IrALista();
+    }
+
+    private void IrALista()
+    {
+        Navigation.NavigateTo("/lista");
+    }
+}

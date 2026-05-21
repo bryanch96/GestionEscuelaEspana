@@ -1,0 +1,195 @@
+﻿@page "/"
+@using GestionEscuelaEspana.Models
+@using GestionEscuelaEspana.Data
+@using Radzen
+@using Radzen.Blazor
+@inject DatabaseService DB
+@implements IDisposable
+
+<div class="dashboard">
+    <div class="db-header">
+        <div>
+            <h1>Escuela España</h1>
+            <p class="subtitle">Sistema de Control Operativo</p>
+        </div>
+        <div class="live-clock">
+    <i class="rz-icon-calendar"></i>
+    <span>@horaActual.ToString("dd/MM/yyyy hh:mm:ss tt")</span>
+</div>
+    </div>
+
+    @if (proximaCitaInminente != null)
+    {
+        <div class="alert-banner">
+            <span class="pulse-icon">⚠️</span> 
+            <strong>Próxima cita en menos de 3 horas:</strong> @proximaCitaInminente.ClienteNombre - Plantel @proximaCitaInminente.Plantel a las @proximaCitaInminente.HoraInicio.ToString(@"hh\:mm")
+        </div>
+    }
+
+    <div class="metrics-grid">
+        <div class="metric-card yellow">
+            <h3>Citas Pendientes</h3>
+            <span class="number">@citasPendientes</span>
+        </div>
+        <div class="metric-card green">
+            <h3>Citas Completadas</h3>
+            <span class="number">@citasCompletadas</span>
+        </div>
+        <div class="metric-card blue">
+            <h3>Instructores Activos</h3>
+            <span class="number">@totalInstructores</span>
+        </div>
+    </div>
+
+    <div class="chart-section mb-4" style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 24px;">
+        <h3 style="color: #1e293b; font-size: 1.2rem; margin-bottom: 16px;">Volumen de Citas por Mes</h3>
+        @if (datosGrafico != null && datosGrafico.Any())
+        {
+            <RadzenChart>
+                <RadzenColumnSeries Data="@datosGrafico" 
+                                    CategoryProperty="MesNombre" 
+                                    ValueProperty="Cantidad" 
+                                    Title="Total Citas" 
+                                    Fills="@(new [] { "#0284c7" })" />
+                <RadzenCategoryAxis Padding="20" />
+                <RadzenValueAxis Min="0" Step="1">
+                    <RadzenGridLines Visible="true" />
+                </RadzenValueAxis>
+                <RadzenLegend Visible="false" />
+            </RadzenChart>
+        }
+        else
+        {
+            <p style="text-align: center; color: #888; padding: 20px;">No hay datos históricos suficientes para generar el gráfico.</p>
+        }
+    </div>
+
+    <div class="proximas-section">
+        <h2>Próximas Citas (3 días)</h2>
+        <table class="db-table">
+            <thead>
+                <tr>
+                    <th>Cliente</th>
+                    <th>Instructor</th>
+                    <th>Plantel</th>
+                    <th>Fecha y Hora</th> 
+                    <th style="width: 200px;">Acción Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in proximasCitas)
+                {
+                    <tr @key="c.Id">
+                        <td><strong>@c.ClienteNombre</strong><br><small>@c.ClienteTelefono</small></td>
+                        <td>@c.InstructorNombre</td>
+                        <td>@c.Plantel</td>
+                        <td>@c.Fecha.ToString("dd/MM/yyyy")<br><small>@c.HoraInicio.ToString(@"hh\:mm")</small></td>
+                        <td>
+                            <RadzenDropDown TValue="string" 
+                                            Value="@c.Estado" 
+                                            Data="@estadosCita" 
+                                            Change="@(nuevoEstado => CambiarEstadoCita(c, nuevoEstado?.ToString() ?? "Pendiente"))" 
+                                            Style="width:100%; font-size: 0.85rem;" />
+                        </td>
+                    </tr>
+                }
+                @if (!proximasCitas.Any())
+                {
+                    <tr><td colspan="5" style="text-align:center; color:#888;">No hay citas agendadas para los siguientes 3 días</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private DateTime horaActual = DateTime.Now;
+    private System.Threading.Timer? timer;
+
+    private int citasPendientes;
+    private int citasCompletadas;
+    private int totalInstructores;
+    private List<Cita> proximasCitas = new();
+    private Cita? proximaCitaInminente;
+    private List<string> estadosCita = new() { "Pendiente", "Completada", "Cancelada" };
+
+    private List<DatosMes> datosGrafico = new();
+
+    public class DatosMes
+    {
+        public string MesNombre { get; set; } = string.Empty;
+        public int Cantidad { get; set; }
+        public int MesNumero { get; set; }
+    }
+
+    protected override void OnInitialized()
+    {
+        CargarDatosDashboard();
+
+        timer = new System.Threading.Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                horaActual = DateTime.Now;
+                VerificarNotificaciones();
+                StateHasChanged();
+            });
+        }, null, 0, 1000);
+    }
+
+    private void CargarDatosDashboard()
+    {
+        var todasCitas = DB.GetCitas() ?? new List<Cita>();
+        var añoActual = DateTime.Today.Year; 
+
+        citasPendientes = todasCitas.Count(c => c.Estado == "Pendiente");
+        citasCompletadas = todasCitas.Count(c => c.Estado == "Completada");
+        totalInstructores = DB.GetInstructores()?.Count ?? 0;
+
+        proximasCitas = todasCitas
+            .Where(c => c.Fecha.Date >= DateTime.Today && c.Fecha.Date <= DateTime.Today.AddDays(3) && c.Estado == "Pendiente")
+            .OrderBy(c => c.Fecha).ThenBy(c => c.HoraInicio)
+            .ToList();
+
+        System.Globalization.CultureInfo idioma = new System.Globalization.CultureInfo("es-CR");
+        
+        datosGrafico = todasCitas
+            .Where(c => c.Fecha.Year == añoActual) 
+            .GroupBy(c => new { c.Fecha.Year, c.Fecha.Month })
+            .Select(g => new DatosMes
+            {
+                MesNombre = idioma.DateTimeFormat.GetMonthName(g.Key.Month).ToUpper()[0] + 
+                            idioma.DateTimeFormat.GetMonthName(g.Key.Month).Substring(1),
+                Cantidad = g.Count(),
+                MesNumero = g.Key.Month
+            })
+            .OrderBy(d => d.MesNumero)
+            .ToList();
+    }
+
+    private void CambiarEstadoCita(Cita citaSeleccionada, string nuevoEstado)
+    {
+        if (citaSeleccionada != null && !string.IsNullOrEmpty(nuevoEstado))
+        {
+            citaSeleccionada.Estado = nuevoEstado;
+            DB.GuardarCita(citaSeleccionada);
+
+            CargarDatosDashboard();
+            VerificarNotificaciones();
+        }
+    }
+
+    private void VerificarNotificaciones()
+    {
+        var todasCitas = DB.GetCitas() ?? new List<Cita>();
+        var ahora = DateTime.Now;
+
+        proximaCitaInminente = todasCitas.FirstOrDefault(c => 
+            c.Estado == "Pendiente" && 
+            c.Fecha.Date.Add(c.HoraInicio) > ahora && 
+            (c.Fecha.Date.Add(c.HoraInicio) - ahora).TotalMinutes <= 180
+        );
+    }
+
+    public void Dispose() => timer?.Dispose();
+}

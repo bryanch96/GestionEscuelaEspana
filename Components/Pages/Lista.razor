@@ -1,0 +1,85 @@
+﻿@page "/lista"
+@using GestionEscuelaEspana.Models
+@using GestionEscuelaEspana.Data
+@inject DatabaseService DB
+@inject NavigationManager Navigation
+
+<div class="container-fluid p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4>Historial y Control de Citas</h4>
+        <button class="btn btn-primary" @onclick="IrFormularioNuevo">＋ Nueva Cita</button>
+    </div>
+
+    <div class="table-responsive">
+        <table class="db-table">
+            <thead>
+                <tr>
+                    <th>Cliente</th>
+                    <th>Vehículo</th>
+                    <th>Plantel</th>
+                    <th>Instructor</th>
+                    <th>Horario</th>
+                    <th>Precio</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in listaCitas)
+                {
+                    <tr @key="c.Id">
+                        <td><strong>@c.ClienteNombre</strong><br><small>@c.ClienteTelefono</small></td>
+                        <td>@c.TipoVehiculo</td>
+                        <td>@c.Plantel</td>
+                        <td>@c.InstructorNombre</td>
+                        <td>
+                            @c.Fecha.ToString("dd/MM/yyyy")<br>
+                            <small>@c.HoraInicio.ToString(@"hh\:mm") a @c.HoraFin.ToString(@"hh\:mm")</small>
+                        </td>
+                        <td>₡@c.Precio.ToString("N0")</td>
+                        <td><span class="badge @c.Estado.ToLower()">@c.Estado</span></td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => MandarAEditar(c.Id)">Editar</button>
+                            <button class="btn btn-sm btn-outline-danger" @onclick="() => EliminarCita(c.Id)">Eliminar</button>
+                        </td>
+                    </tr>
+                }
+                @if (!listaCitas.Any())
+                {
+                    <tr><td colspan="8" style="text-align:center; color:#888;">No hay registros de citas</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<Cita> listaCitas = new();
+
+    protected override void OnInitialized()
+    {
+        RefrescarDatos();
+    }
+
+    private void RefrescarDatos()
+    {
+        listaCitas = DB.GetCitas() ?? new List<Cita>();
+    }
+
+    private void MandarAEditar(int id)
+    {
+        // Redirige al formulario enviando el ID por la URL (ej: /citas/5)
+        Navigation.NavigateTo($"/citas/{id}");
+    }
+
+    private void EliminarCita(int id)
+    {
+        DB.EliminarCita(id);
+        RefrescarDatos();
+    }
+
+    private void IrFormularioNuevo()
+    {
+        Navigation.NavigateTo("/citas");
+    }
+}
