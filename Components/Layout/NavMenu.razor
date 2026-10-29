@@ -1,31 +1,58 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
+<div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
-        <a class="navbar-brand" href="">GestionEscuelaEspana</a>
+        <a class="navbar-brand" href=""><span class="ico">directions_car</span> Escuela España</a>
     </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+<input type="checkbox" title="Menú de navegación" class="navbar-toggler" />
 
-<div class="nav-item px-3">
-    <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-        <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Dashboard
-    </NavLink>
-</div>
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="ico">dashboard</span> Dashboard
+            </NavLink>
+        </div>
 
-<div class="nav-item px-3">
-    <NavLink class="nav-link" href="instructores">
-        <span class="bi bi-person-badge-nav-menu" aria-hidden="true"></span> Instructores
-    </NavLink>
-</div>
+        <AuthorizeView Roles="@Roles.Gestion">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="instructores">
+                    <span class="ico">badge</span> Instructores
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="citas" Match="NavLinkMatch.All">
+                    <span class="ico">event_available</span> Agendar Citas
+                </NavLink>
+            </div>
+        </AuthorizeView>
 
-<div class="nav-item px-3">
-    <NavLink class="nav-link" href="citas">
-        <span class="bi bi-calendar-check-nav-menu" aria-hidden="true"></span> Agendar Citas
-    </NavLink>
-</div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="lista">
+                <span class="ico">history</span> Historial de Citas
+            </NavLink>
+        </div>
 
-<div class="nav-item px-3">
-    <NavLink class="nav-link" href="lista">
-        <span class="bi bi-calendar-check-nav-menu" aria-hidden="true"></span> Historial de Citas
-    </NavLink>
+        <AuthorizeView Roles="@Roles.Docencia">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="profesor-en-linea">
+                    <span class="ico">school</span> Profesor en Línea
+                </NavLink>
+            </div>
+        </AuthorizeView>
+
+        <AuthorizeView Roles="@Roles.Administrador">
+            <div class="nav-seccion">Administración</div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="usuarios">
+                    <span class="ico">manage_accounts</span> Usuarios y Perfiles
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="configuracion">
+                    <span class="ico">settings</span> Configuración
+                </NavLink>
+            </div>
+        </AuthorizeView>
+    </nav>
 </div>

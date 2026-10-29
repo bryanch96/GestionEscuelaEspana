@@ -1,85 +1,289 @@
-﻿@page "/lista"
-@using GestionEscuelaEspana.Models
-@using GestionEscuelaEspana.Data
-@inject DatabaseService DB
+@page "/lista"
+@implements IDisposable
+@inject ICitaService ServicioCitas
+@inject IInstructorService ServicioInstructores
+@inject AccionesCita Acciones
+@inject ISesionUsuario Sesion
+@inject IAppPaths Rutas
+@inject IShareService Compartir
 @inject NavigationManager Navigation
 
-<div class="container-fluid p-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4>Historial y Control de Citas</h4>
-        <button class="btn btn-primary" @onclick="IrFormularioNuevo">＋ Nueva Cita</button>
+<div class="container-fluid p-md-4">
+    <div class="pagina-encabezado">
+        <div>
+            <h1>Historial de Citas</h1>
+            <p class="subtitle">Consulta, control y seguimiento de todas las citas de la escuela.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary" @onclick="ExportarAsync" disabled="@(filtradas.Count == 0)"><span class="ico">download</span> Exportar CSV</button>
+            @if (PuedeGestionar)
+            {
+                <button class="btn btn-primary" @onclick='() => Navigation.NavigateTo("/citas")'><span class="ico">add</span> Nueva cita</button>
+            }
+        </div>
     </div>
 
-    <div class="table-responsive">
-        <table class="db-table">
-            <thead>
-                <tr>
-                    <th>Cliente</th>
-                    <th>Vehículo</th>
-                    <th>Plantel</th>
-                    <th>Instructor</th>
-                    <th>Horario</th>
-                    <th>Precio</th>
-                    <th>Estado</th>
-                    <th>Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var c in listaCitas)
-                {
-                    <tr @key="c.Id">
-                        <td><strong>@c.ClienteNombre</strong><br><small>@c.ClienteTelefono</small></td>
-                        <td>@c.TipoVehiculo</td>
-                        <td>@c.Plantel</td>
-                        <td>@c.InstructorNombre</td>
-                        <td>
-                            @c.Fecha.ToString("dd/MM/yyyy")<br>
-                            <small>@c.HoraInicio.ToString(@"hh\:mm") a @c.HoraFin.ToString(@"hh\:mm")</small>
-                        </td>
-                        <td>₡@c.Precio.ToString("N0")</td>
-                        <td><span class="badge @c.Estado.ToLower()">@c.Estado</span></td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-primary me-1" @onclick="() => MandarAEditar(c.Id)">Editar</button>
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => EliminarCita(c.Id)">Eliminar</button>
-                        </td>
-                    </tr>
-                }
-                @if (!listaCitas.Any())
-                {
-                    <tr><td colspan="8" style="text-align:center; color:#888;">No hay registros de citas</td></tr>
-                }
-            </tbody>
-        </table>
+    @* --- Filtros avanzados --- *@
+    <div class="panel filtros-panel">
+        <div class="presets mb-2">
+            @foreach (var (clave, nombre) in Presets)
+            {
+                var k = clave;
+                <button class="chip @(preset == k ? "seleccionado" : "")" @onclick="() => AplicarPresetAsync(k)">@nombre</button>
+            }
+        </div>
+        <div class="row g-2 align-items-end">
+            <div class="col-6 col-md-2">
+                <label class="form-label small">Desde</label>
+                <input type="date" class="form-control form-control-sm" @bind="desde" @bind:after="AlCambiarFechasAsync" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small">Hasta</label>
+                <input type="date" class="form-control form-control-sm" @bind="hasta" @bind:after="AlCambiarFechasAsync" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Instructor</label>
+                <select class="form-select form-select-sm" @bind="instructorId" @bind:after="CargarAsync" disabled="@EsInstructor">
+                    <option value="0">Todos</option>
+                    @foreach (var i in instructores) { <option value="@i.Id">@i.Nombre</option> }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small">Plantel</label>
+                <select class="form-select form-select-sm" @bind="plantel" @bind:after="CargarAsync">
+                    <option value="">Todos</option>
+                    @foreach (var p in Planteles.Todos) { <option value="@p">@p</option> }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small">Buscar cliente</label>
+                <div class="input-icono">
+                    <span class="ico">search</span>
+                    <input class="form-control form-control-sm" placeholder="Nombre, teléfono o correo" value="@texto" @oninput="BuscarConRetraso" />
+                </div>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-2 align-items-center">
+            <small class="text-muted">Estado:</small>
+            @foreach (var e in EstadosCita.Todos)
+            {
+                var estado = e;
+                <button class="chip estado @EstadosCita.CssClase(estado) @(estados.Contains(estado) ? "seleccionado" : "")" @onclick="() => AlternarEstadoAsync(estado)">@estado</button>
+            }
+            <button class="btn btn-link btn-sm ms-auto" @onclick="LimpiarFiltrosAsync"><span class="ico">filter_alt_off</span> Limpiar filtros</button>
+        </div>
+    </div>
+
+    @* --- Resumen de resultados --- *@
+    <div class="resumen-historial">
+        <div><strong>@filtradas.Count</strong><small>citas</small></div>
+        <div class="completada"><strong>@filtradas.Count(c => c.Estado == EstadosCita.Completada)</strong><small>completadas</small></div>
+        <div class="pendiente"><strong>@filtradas.Count(c => c.Estado == EstadosCita.Pendiente)</strong><small>pendientes</small></div>
+        <div class="cancelada"><strong>@filtradas.Count(c => c.Estado is EstadosCita.Cancelada or EstadosCita.NoAsistio)</strong><small>canceladas / no asistió</small></div>
+        <div><strong>@Formato.Colones(filtradas.Where(c => c.Estado == EstadosCita.Completada).Sum(c => c.Precio))</strong><small>ingresos</small></div>
+        <div><strong>@filtradas.Where(c => c.Estado == EstadosCita.Completada).Sum(c => c.DuracionHoras).ToString("0.#") h</strong><small>impartidas</small></div>
+    </div>
+
+    <div class="grid-contenedor">
+    <RadzenDataGrid TItem="Cita" Data="@filtradas" IsLoading="@cargando" AllowSorting="true" AllowPaging="true" PageSize="15"
+                    PageSizeOptions="@(new[] { 15, 30, 50, 100 })" ShowPagingSummary="true" PagingSummaryFormat="Página {0} de {1} ({2} citas)" PageSizeText="por página"
+                    FirstPageTitle="Primera página" PrevPageTitle="Anterior" NextPageTitle="Siguiente" LastPageTitle="Última página"
+                    Density="Density.Compact" RowClick="@(args => args.Data is { } c ? VerAsync(c) : Task.CompletedTask)" EmptyText="No hay citas que coincidan con los filtros."
+                    class="grid-historial">
+        <Columns>
+            <RadzenDataGridColumn TItem="Cita" Property="@nameof(Cita.Fecha)" Title="Fecha y hora" Width="175px" SortOrder="SortOrder.Descending">
+                <Template Context="c">
+                    <strong>@Formato.Fecha(c.Fecha)</strong><br />
+                    <small>@Formato.Rango(c.HoraInicio, c.HoraFin)</small>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Cita" Property="@nameof(Cita.ClienteNombre)" Title="Cliente" MinWidth="170px">
+                <Template Context="c">
+                    <strong>@c.ClienteNombre</strong><br />
+                    <small>@c.ClienteTelefono</small>
+                    @if (!string.IsNullOrWhiteSpace(c.ClienteCorreo))
+                    {
+                        <span class="ico pequeno text-muted" title="@c.ClienteCorreo">mail</span>
+                    }
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Cita" Property="@nameof(Cita.TipoVehiculo)" Title="Práctica" MinWidth="150px">
+                <Template Context="c">
+                    @c.TipoVehiculo<br />
+                    <small class="text-muted"><span class="ico pequeno">location_on</span> @c.Plantel</small>
+                </Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Cita" Property="@nameof(Cita.InstructorNombre)" Title="Instructor" Width="140px" />
+            <RadzenDataGridColumn TItem="Cita" Property="@nameof(Cita.Precio)" Title="Precio" Width="105px" TextAlign="TextAlign.Right">
+                <Template Context="c">@Formato.Colones(c.Precio)</Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Cita" Property="@nameof(Cita.Estado)" Title="Estado" Width="125px">
+                <Template Context="c"><EstadoBadge Estado="@c.Estado" /></Template>
+            </RadzenDataGridColumn>
+            <RadzenDataGridColumn TItem="Cita" Title="Acciones" Width="180px" Sortable="false" TextAlign="TextAlign.Right">
+                <Template Context="c">
+                    <div class="text-nowrap" @onclick:stopPropagation>
+                        <button class="btn-icono exito" title="WhatsApp" @onclick="() => Acciones.WhatsAppRecordatorioAsync(c)"><span class="ico">chat</span></button>
+                        @if (PuedeGestionar)
+                        {
+                            @if (c.Estado == EstadosCita.Pendiente)
+                            {
+                                <button class="btn-icono exito" title="Marcar completada" @onclick="() => CambiarEstadoAsync(c, EstadosCita.Completada)"><span class="ico">task_alt</span></button>
+                                <button class="btn-icono" title="Modificar" @onclick='() => Navigation.NavigateTo($"/citas/{c.Id}")'><span class="ico">edit</span></button>
+                                <button class="btn-icono peligro" title="Cancelar" @onclick="() => CambiarEstadoAsync(c, EstadosCita.Cancelada)"><span class="ico">event_busy</span></button>
+                            }
+                            else
+                            {
+                                <button class="btn-icono" title="Reagendar (nueva cita con los mismos datos)" @onclick='() => Navigation.NavigateTo($"/citas?duplicar={c.Id}")'><span class="ico">event_repeat</span></button>
+                            }
+                        }
+                        @if (Sesion.EsAdministrador)
+                        {
+                            <button class="btn-icono peligro" title="Eliminar" @onclick="() => EliminarAsync(c)"><span class="ico">delete</span></button>
+                        }
+                    </div>
+                </Template>
+            </RadzenDataGridColumn>
+        </Columns>
+    </RadzenDataGrid>
     </div>
 </div>
 
 @code {
-    private List<Cita> listaCitas = new();
-
-    protected override void OnInitialized()
+    private static readonly (string Clave, string Nombre)[] Presets =
     {
-        RefrescarDatos();
+        ("hoy", "Hoy"), ("semana", "Esta semana"), ("mes", "Este mes"), ("30", "Últimos 30 días"),
+        ("proximas", "Próximas"), ("anio", "Este año"), ("todo", "Todo")
+    };
+
+    private List<Cita> filtradas = new();
+    private List<Instructor> instructores = new();
+    private readonly HashSet<string> estados = new();
+    private string preset = "mes";
+    private DateTime? desde;
+    private DateTime? hasta;
+    private int instructorId;
+    private string plantel = string.Empty;
+    private string texto = string.Empty;
+    private bool cargando = true;
+    private CancellationTokenSource? retrasoBusqueda;
+
+    private bool PuedeGestionar => Sesion.TieneRol(Roles.Administrador, Roles.Recepcionista);
+    private bool EsInstructor => Sesion.Actual is { Rol: Roles.Instructor, InstructorId: > 0 };
+
+    protected override async Task OnInitializedAsync()
+    {
+        instructores = await ServicioInstructores.ListarAsync();
+        if (EsInstructor) instructorId = Sesion.Actual!.InstructorId;
+        await AplicarPresetAsync(preset);
     }
 
-    private void RefrescarDatos()
+    private async Task CargarAsync()
     {
-        listaCitas = DB.GetCitas() ?? new List<Cita>();
+        cargando = true;
+        try
+        {
+            filtradas = await ServicioCitas.BuscarAsync(new CitaFiltro
+            {
+                Desde = desde,
+                Hasta = hasta,
+                InstructorId = instructorId > 0 ? instructorId : null,
+                Plantel = plantel,
+                Estados = estados.ToList(),
+                Texto = texto
+            });
+        }
+        finally { cargando = false; }
     }
 
-    private void MandarAEditar(int id)
+    private async Task AplicarPresetAsync(string clave)
     {
-        // Redirige al formulario enviando el ID por la URL (ej: /citas/5)
-        Navigation.NavigateTo($"/citas/{id}");
+        preset = clave;
+        var hoy = DateTime.Today;
+        var lunes = hoy.AddDays(-(((int)hoy.DayOfWeek + 6) % 7));
+        (desde, hasta) = clave switch
+        {
+            "hoy" => (hoy, hoy),
+            "semana" => (lunes, lunes.AddDays(6)),
+            "mes" => (new DateTime(hoy.Year, hoy.Month, 1), new DateTime(hoy.Year, hoy.Month, 1).AddMonths(1).AddDays(-1)),
+            "30" => (hoy.AddDays(-30), hoy),
+            "proximas" => (hoy, (DateTime?)null),
+            "anio" => (new DateTime(hoy.Year, 1, 1), new DateTime(hoy.Year, 12, 31)),
+            _ => ((DateTime?)null, (DateTime?)null)
+        };
+        await CargarAsync();
     }
 
-    private void EliminarCita(int id)
+    private async Task AlCambiarFechasAsync()
     {
-        DB.EliminarCita(id);
-        RefrescarDatos();
+        preset = string.Empty;
+        if (desde > hasta) (desde, hasta) = (hasta, desde);
+        await CargarAsync();
     }
 
-    private void IrFormularioNuevo()
+    private async Task AlternarEstadoAsync(string estado)
     {
-        Navigation.NavigateTo("/citas");
+        if (!estados.Remove(estado)) estados.Add(estado);
+        await CargarAsync();
     }
+
+    /// <summary>Búsqueda con "debounce" de 300 ms: no consulta la base de datos en cada tecla.</summary>
+    private async Task BuscarConRetraso(ChangeEventArgs e)
+    {
+        texto = e.Value?.ToString() ?? string.Empty;
+        retrasoBusqueda?.Cancel();
+        retrasoBusqueda = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(300, retrasoBusqueda.Token);
+            await CargarAsync();
+        }
+        catch (TaskCanceledException)
+        {
+            // Llegó otra tecla antes de cumplirse el retraso.
+        }
+    }
+
+    private async Task LimpiarFiltrosAsync()
+    {
+        estados.Clear();
+        plantel = string.Empty;
+        texto = string.Empty;
+        if (!EsInstructor) instructorId = 0;
+        await AplicarPresetAsync("mes");
+    }
+
+    private async Task VerAsync(Cita c)
+    {
+        if (await Acciones.VerDetalleAsync(c.Id)) await CargarAsync();
+    }
+
+    private async Task CambiarEstadoAsync(Cita c, string estado)
+    {
+        if (await Acciones.CambiarEstadoAsync(c, estado)) await CargarAsync();
+    }
+
+    private async Task EliminarAsync(Cita c)
+    {
+        if (await Acciones.EliminarAsync(c)) await CargarAsync();
+    }
+
+    private async Task ExportarAsync()
+    {
+        try
+        {
+            var carpeta = Path.Combine(Rutas.CarpetaDatos, "Exportaciones");
+            Directory.CreateDirectory(carpeta);
+            var ruta = Path.Combine(carpeta, $"historial_citas_{DateTime.Now:yyyyMMdd_HHmm}.csv");
+            await File.WriteAllTextAsync(ruta, ExportadorCitas.ACsv(filtradas), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            await Compartir.CompartirArchivoAsync(ruta, "Historial de citas");
+            Acciones.Notificar(true, "Exportación lista", $"{filtradas.Count} citas exportadas a {ruta}");
+        }
+        catch (Exception ex)
+        {
+            Acciones.Notificar(false, "No se pudo exportar", ex.Message);
+        }
+    }
+
+    public void Dispose() => retrasoBusqueda?.Cancel();
 }

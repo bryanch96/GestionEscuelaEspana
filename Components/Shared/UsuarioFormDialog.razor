@@ -1,0 +1,126 @@
+@inject IUsuarioService Usuarios
+@inject IInstructorService ServicioInstructores
+@inject DialogService Dialogos
+
+<EditForm Model="modelo" OnSubmit="GuardarAsync">
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger py-2">@error</div>
+    }
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label">Nombre completo *</label>
+            <input class="form-control" @bind="modelo.NombreCompleto" />
+        </div>
+        <div class="col-md-6">
+            <label class="form-label">Usuario *</label>
+            <input class="form-control" @bind="modelo.NombreUsuario" autocomplete="off" />
+        </div>
+        <div class="col-12">
+            <label class="form-label">Correo electrónico * <small class="text-muted">(recuperación de contraseña)</small></label>
+            <input class="form-control" type="email" @bind="modelo.Correo" />
+        </div>
+        <div class="col-md-6">
+            <label class="form-label">Rol *</label>
+            <select class="form-select" @bind="modelo.Rol">
+                @foreach (var r in Roles.Todos) { <option value="@r">@r</option> }
+            </select>
+            <small class="text-muted">@DescripcionRol(modelo.Rol)</small>
+        </div>
+        @if (modelo.Rol == Roles.Instructor)
+        {
+            <div class="col-md-6">
+                <label class="form-label">Instructor vinculado</label>
+                <select class="form-select" @bind="modelo.InstructorId">
+                    <option value="0">Ninguno (ve todas las citas)</option>
+                    @foreach (var i in instructores) { <option value="@i.Id">@i.Nombre</option> }
+                </select>
+                <small class="text-muted">Si se vincula, el historial muestra solo sus citas.</small>
+            </div>
+        }
+        @if (EsNuevo)
+        {
+            <div class="col-md-6">
+                <label class="form-label">Contraseña inicial *</label>
+                <input class="form-control" type="password" @bind="password" @bind:event="oninput" autocomplete="new-password" />
+                <IndicadorPassword Password="@password" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Confirmar contraseña *</label>
+                <input class="form-control" type="password" @bind="confirmacion" autocomplete="new-password" />
+            </div>
+        }
+        else
+        {
+            <div class="col-12">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="activo" @bind="modelo.Activo" />
+                    <label class="form-check-label" for="activo">Cuenta activa (puede iniciar sesión)</label>
+                </div>
+            </div>
+        }
+    </div>
+    <div class="d-flex justify-content-end gap-2 mt-3">
+        <button type="button" class="btn btn-light" @onclick="() => Dialogos.Close(false)">Cancelar</button>
+        <button type="submit" class="btn btn-primary" disabled="@guardando"><span class="ico">save</span> Guardar</button>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter] public Usuario? Usuario { get; set; }
+
+    private Usuario modelo = new();
+    private List<Instructor> instructores = new();
+    private string password = string.Empty;
+    private string confirmacion = string.Empty;
+    private string? error;
+    private bool guardando;
+
+    private bool EsNuevo => modelo.Id == 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        modelo = Usuario == null ? new Usuario { Rol = Roles.Recepcionista } : new Usuario
+        {
+            Id = Usuario.Id,
+            NombreUsuario = Usuario.NombreUsuario,
+            NombreCompleto = Usuario.NombreCompleto,
+            Correo = Usuario.Correo,
+            Rol = Usuario.Rol,
+            Activo = Usuario.Activo,
+            InstructorId = Usuario.InstructorId
+        };
+        instructores = await ServicioInstructores.ListarAsync();
+    }
+
+    public static string DescripcionRol(string rol) => rol switch
+    {
+        Roles.Administrador => "Acceso total, incluida la gestión de usuarios y la configuración.",
+        Roles.Recepcionista => "Agenda citas, gestiona instructores y consulta el historial.",
+        Roles.Instructor => "Consulta su agenda y usa Profesor en Línea con sus estudiantes.",
+        _ => string.Empty
+    };
+
+    private async Task GuardarAsync()
+    {
+        error = null;
+        if (EsNuevo && password != confirmacion)
+        {
+            error = "Las contraseñas no coinciden.";
+            return;
+        }
+
+        guardando = true;
+        try
+        {
+            var resultado = EsNuevo ? await Usuarios.CrearAsync(modelo, password) : await Usuarios.ActualizarAsync(modelo);
+            if (!resultado.Exito)
+            {
+                error = resultado.Mensaje;
+                return;
+            }
+            Dialogos.Close(true);
+        }
+        finally { guardando = false; }
+    }
+}

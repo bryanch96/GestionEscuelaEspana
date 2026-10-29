@@ -1,0 +1,150 @@
+@page "/login"
+@layout LoginLayout
+@attribute [AllowAnonymous]
+@implements IDisposable
+@inject IAuthService Auth
+@inject IUsuarioService Usuarios
+@inject ISesionUsuario Sesion
+@inject NavigationManager Navigation
+
+<div class="acceso-card">
+    <h1>Iniciar sesión</h1>
+    <p class="text-muted">Ingrese con su usuario o correo electrónico.</p>
+
+    @if (bloqueadoHastaUtc != null)
+    {
+        <div class="bloqueo-panel">
+            <span class="ico">lock_clock</span>
+            <div>
+                <strong>Aplicación bloqueada por seguridad</strong>
+                <div>Podrá intentarlo de nuevo en <span class="cuenta-regresiva">@TiempoRestante</span></div>
+            </div>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(mensaje))
+    {
+        <div class="alert @claseMensaje py-2" role="alert">@mensaje</div>
+    }
+
+    <EditForm Model="this" OnSubmit="IniciarSesionAsync">
+        <div class="mb-3">
+            <label class="form-label" for="usuario">Usuario o correo</label>
+            <div class="input-icono">
+                <span class="ico">person</span>
+                <input id="usuario" class="form-control" @bind="usuario" autocomplete="username" disabled="@Deshabilitado" />
+            </div>
+        </div>
+        <div class="mb-2">
+            <label class="form-label" for="password">Contraseña</label>
+            <div class="input-icono">
+                <span class="ico">lock</span>
+                <input id="password" class="form-control" type="@(verPassword ? "text" : "password")" @bind="password"
+                       autocomplete="current-password" disabled="@Deshabilitado" />
+                <button type="button" class="btn-ojo" title="Mostrar u ocultar" @onclick="() => verPassword = !verPassword">
+                    <span class="ico">@(verPassword ? "visibility_off" : "visibility")</span>
+                </button>
+            </div>
+        </div>
+        <div class="text-end mb-3">
+            <a href="recuperar">¿Olvidó su contraseña?</a>
+        </div>
+        <button type="submit" class="btn btn-primary w-100 btn-lg" disabled="@Deshabilitado">
+            @if (procesando)
+            {
+                <span class="spinner-border spinner-border-sm me-2"></span>
+            }
+            Entrar
+        </button>
+    </EditForm>
+
+    <p class="acceso-nota">
+        <span class="ico">shield</span>
+        Por seguridad, al 3.er intento fallido la aplicación se bloquea 3 minutos, al 4.º 10 minutos
+        y al 5.º la cuenta se bloquea y se envía un correo de recuperación.
+    </p>
+</div>
+
+@code {
+    private string usuario = string.Empty;
+    private string password = string.Empty;
+    private bool verPassword;
+    private bool procesando;
+    private string? mensaje;
+    private string claseMensaje = "alert-danger";
+    private DateTime? bloqueadoHastaUtc;
+    private System.Threading.Timer? timer;
+
+    private bool Deshabilitado => procesando || bloqueadoHastaUtc != null;
+
+    private string TiempoRestante
+    {
+        get
+        {
+            var restante = (bloqueadoHastaUtc ?? DateTime.UtcNow) - DateTime.UtcNow;
+            return restante <= TimeSpan.Zero ? "00:00" : restante.ToString(@"mm\:ss");
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Sesion.Autenticado)
+        {
+            Navigation.NavigateTo("/", replace: true);
+            return;
+        }
+        if (!await Usuarios.ExistenUsuariosAsync())
+        {
+            Navigation.NavigateTo("/configuracion-inicial", replace: true);
+            return;
+        }
+
+        bloqueadoHastaUtc = await Auth.ObtenerBloqueoVigenteAsync();
+        timer = new System.Threading.Timer(_ => InvokeAsync(ActualizarBloqueo), null, 0, 1000);
+    }
+
+    private void ActualizarBloqueo()
+    {
+        if (bloqueadoHastaUtc == null) return;
+        if (bloqueadoHastaUtc <= DateTime.UtcNow)
+        {
+            bloqueadoHastaUtc = null;
+            mensaje = "El bloqueo terminó. Puede intentar de nuevo.";
+            claseMensaje = "alert-info";
+        }
+        StateHasChanged();
+    }
+
+    private async Task IniciarSesionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(usuario) || string.IsNullOrEmpty(password))
+        {
+            mensaje = "Ingrese su usuario y contraseña.";
+            claseMensaje = "alert-warning";
+            return;
+        }
+
+        procesando = true;
+        mensaje = null;
+        try
+        {
+            var resultado = await Auth.IniciarSesionAsync(usuario, password);
+            if (resultado.Exito)
+            {
+                Navigation.NavigateTo("/", replace: true);
+                return;
+            }
+
+            password = string.Empty;
+            mensaje = resultado.Mensaje;
+            claseMensaje = resultado.Tipo == TipoResultadoLogin.CredencialesInvalidas ? "alert-warning" : "alert-danger";
+            bloqueadoHastaUtc = resultado.BloqueadoHastaUtc is { } hasta && hasta > DateTime.UtcNow ? hasta : null;
+        }
+        finally
+        {
+            procesando = false;
+        }
+    }
+
+    public void Dispose() => timer?.Dispose();
+}

@@ -1,0 +1,46 @@
+@* Segunda confirmación (obligatoria) antes de enviar un seguimiento: resume el contenido y exige
+   marcar una casilla, evitando envíos accidentales. *@
+@inject DialogService Dialogos
+
+<div class="confirmacion-envio">
+    <div class="alert alert-warning d-flex gap-2 align-items-start">
+        <span class="ico">gpp_maybe</span>
+        <div>Está a punto de enviar información de evaluación. Una vez enviado <strong>no se puede deshacer</strong>.</div>
+    </div>
+
+    <dl class="resumen-envio">
+        <dt>Destinatario</dt>
+        <dd><strong>@Estudiante</strong> &lt;@Correo&gt;</dd>
+        <dt>Asunto</dt>
+        <dd>@(string.IsNullOrWhiteSpace(Titulo) ? "Retroalimentación de su práctica de manejo" : Titulo)</dd>
+        <dt>Contenido</dt>
+        <dd class="extracto">@(Texto.Length > 220 ? Texto[..220] + "…" : Texto)</dd>
+        <dt>Adjuntos</dt>
+        <dd>@(Adjuntos == 0 ? "Ninguno" : $"{Adjuntos} archivo(s) · {Formato.TamanoArchivo(TamanoAdjuntos)}")</dd>
+    </dl>
+
+    <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" id="confirmo" @bind="confirmado" />
+        <label class="form-check-label" for="confirmo">
+            Confirmo que revisé el contenido y que el destinatario es el estudiante correcto.
+        </label>
+    </div>
+
+    <div class="d-flex justify-content-end gap-2">
+        <button class="btn btn-light" @onclick="() => Dialogos.Close(false)">Cancelar</button>
+        <button class="btn btn-success" disabled="@(!confirmado)" @onclick="() => Dialogos.Close(true)">
+            <span class="ico">send</span> Enviar definitivamente
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Estudiante { get; set; } = string.Empty;
+    [Parameter] public string Correo { get; set; } = string.Empty;
+    [Parameter] public string Titulo { get; set; } = string.Empty;
+    [Parameter] public string Texto { get; set; } = string.Empty;
+    [Parameter] public int Adjuntos { get; set; }
+    [Parameter] public long TamanoAdjuntos { get; set; }
+
+    private bool confirmado;
+}

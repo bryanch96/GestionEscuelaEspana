@@ -1,131 +1,372 @@
-﻿@page "/citas"
+@page "/citas"
 @page "/citas/{Id:int}"
-@using GestionEscuelaEspana.Models
-@using GestionEscuelaEspana.Data
-@using Radzen
-@using Radzen.Blazor
-@inject DatabaseService DB
+@attribute [Authorize(Roles = Roles.Gestion)]
+@inject ICitaService ServicioCitas
+@inject IInstructorService ServicioInstructores
+@inject IEstudianteService Estudiantes
+@inject AccionesCita Acciones
+@inject DialogService Dialogos
 @inject NavigationManager Navigation
 
-<div class="container-fluid p-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2>@(Id == 0 ? "Agendamiento de Citas" : "Modificar Cita") - Escuela España</h2>
-        <button class="btn btn-outline-secondary" @onclick="IrALista">← Volver al Historial</button>
+<div class="container-fluid p-md-4">
+    <div class="pagina-encabezado">
+        <div>
+            <h1>@(EsEdicion ? "Modificar cita" : "Agendar cita")</h1>
+            <p class="subtitle">@(EsEdicion ? $"Cita #{Id} · {cita.ClienteNombre}" : "Complete los datos para reservar la práctica.")</p>
+        </div>
+        <button class="btn btn-outline-secondary" @onclick="IrALista"><span class="ico">arrow_back</span> Volver al historial</button>
     </div>
 
-    <div class="card p-4 mb-4 style-card" style="background: white; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
-        <h5>Formulario de Reserva</h5>
-        <EditForm Model="cita" OnValidSubmit="GuardarCita">
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">Nombre del Cliente</label>
-                    <input type="text" class="form-control" @bind="cita.ClienteNombre" required />
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">Número de Celular</label>
-                    <input type="text" class="form-control" @bind="cita.ClienteTelefono" required />
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">Precio (₡)</label>
-                    <input type="number" class="form-control" @bind="cita.Precio" required />
-                </div>
-            </div>
+    @if (cargando)
+    {
+        <div class="text-center p-5"><div class="spinner-border text-primary"></div></div>
+    }
+    else
+    {
+        <div class="cita-layout">
+            <EditForm Model="cita" OnSubmit="() => GuardarAsync(false)" class="panel">
+                @if (validacion.Errores.Count > 0)
+                {
+                    <div class="alert alert-danger py-2">
+                        @foreach (var e in validacion.Errores) { <div><span class="ico">error</span> @e</div> }
+                    </div>
+                }
 
-            <div class="row">
-                <div class="col-md-3 mb-3">
-                    <label class="form-label">Tipo de Vehículo</label>
-                    <RadzenDropDown @bind-Value="@cita.TipoVehiculo" Data="@tiposVehiculo" Style="width:100%;" />
-                </div>
-                <div class="col-md-3 mb-3">
-                    <label class="form-label">Plantel de Pruebas</label>
-                    <RadzenDropDown @bind-Value="@cita.Plantel" Data="@planteles" Style="width:100%;" />
-                </div>
-                <div class="col-md-3 mb-3">
-                    <label class="form-label">Instructor Asignado</label>
-                    <RadzenDropDown @bind-Value="@cita.InstructorId" Data="@instructores" TextProperty="Nombre" ValueProperty="Id" Style="width:100%;" Placeholder="Seleccione..." />
-                </div>
-                <div class="col-md-3 mb-3">
-                    <label class="form-label">Estado de Cita</label>
-                    <RadzenDropDown @bind-Value="@cita.Estado" Data="@estadosCita" Style="width:100%;" />
-                </div>
-            </div>
+                <fieldset class="form-seccion">
+                    <legend><span class="ico">person</span> Cliente</legend>
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Estudiante registrado <small class="text-muted">(opcional: completa los datos automáticamente)</small></label>
+                            <RadzenDropDown TValue="int" Value="@estudianteSeleccionado" Data="@estudiantes" TextProperty="@nameof(Estudiante.NombreCompleto)"
+                                            ValueProperty="@nameof(Estudiante.Id)" AllowFiltering="true" AllowClear="true"
+                                            FilterCaseSensitivity="FilterCaseSensitivity.CaseInsensitive" FilterOperator="StringFilterOperator.Contains"
+                                            Placeholder="Buscar estudiante…" Change="@(v => SeleccionarEstudiante(v))" Style="width:100%;" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Nombre del cliente *</label>
+                            <input class="form-control" @bind="cita.ClienteNombre" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Número de celular *</label>
+                            <input class="form-control" type="tel" @bind="cita.ClienteTelefono" placeholder="8888-8888" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Correo electrónico del cliente</label>
+                            <input class="form-control @(CorreoInvalido ? "is-invalid" : "")" type="email" @bind="cita.ClienteCorreo" @bind:event="oninput"
+                                   placeholder="cliente@correo.com" />
+                            @if (CorreoInvalido)
+                            {
+                                <div class="invalid-feedback">Formato de correo no válido.</div>
+                            }
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="enviarCorreo" @bind="enviarCorreo" disabled="@string.IsNullOrWhiteSpace(cita.ClienteCorreo)" />
+                                <label class="form-check-label" for="enviarCorreo">
+                                    <span class="ico">forward_to_inbox</span>
+                                    Enviar al cliente una copia digital con los detalles de la cita
+                                    @if (string.IsNullOrWhiteSpace(cita.ClienteCorreo)) { <small class="text-muted">(ingrese un correo)</small> }
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </fieldset>
 
-            <div class="row">
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">Fecha de Cita</label>
-                    <input type="date" class="form-control" @bind="fechaAux" required />
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">Hora Inicio</label>
-                    <input type="time" class="form-control" @bind="horaInicioAux" required />
-                </div>
-                <div class="col-md-4 mb-3">
-                    <label class="form-label">Hora Finalización</label>
-                    <input type="time" class="form-control" @bind="horaFinAux" required />
-                </div>
-            </div>
+                <fieldset class="form-seccion">
+                    <legend><span class="ico">directions_car</span> Detalles de la práctica</legend>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Tipo de vehículo *</label>
+                            <select class="form-select" @bind="tipoVehiculoSeleccion" @bind:after="AlCambiarAgendaAsync">
+                                @foreach (var t in TiposVehiculo.Opciones) { <option value="@t">@t</option> }
+                            </select>
+                        </div>
+                        @if (EsOtroVehiculo)
+                        {
+                            <div class="col-md-6 aparecer">
+                                <label class="form-label">Especifique el vehículo *</label>
+                                <input class="form-control" @bind="otroVehiculo" placeholder="Ej.: Pick-up 4x4 (B-2), camión liviano…" maxlength="80" required />
+                            </div>
+                        }
+                        <div class="col-md-6">
+                            <label class="form-label">Plantel de pruebas *</label>
+                            <select class="form-select" @bind="cita.Plantel">
+                                @foreach (var p in Planteles.Todos) { <option value="@p">@p</option> }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Instructor asignado *</label>
+                            <select class="form-select" @bind="cita.InstructorId" @bind:after="AlCambiarAgendaAsync">
+                                <option value="0">Seleccione…</option>
+                                @foreach (var i in instructores)
+                                {
+                                    <option value="@i.Id">@i.Nombre (@string.Join(", ", i.Categorias))@(i.EstaActivo ? "" : $" – {i.Estado}")</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Estado de la cita</label>
+                            <select class="form-select" @bind="cita.Estado">
+                                @foreach (var e in EstadosCita.Todos) { <option value="@e">@e</option> }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Precio (₡) *</label>
+                            <input class="form-control" type="number" min="0" step="500" @bind="cita.Precio" />
+                        </div>
+                    </div>
+                </fieldset>
 
-            <button type="submit" class="btn btn-success mt-2" style="background-color: #10b981; border: none; padding: 10px 24px;">
-                @(Id == 0 ? "Agendar Cita" : "Guardar Cambios")
-            </button>
-            <button type="button" class="btn btn-secondary mt-2 ms-2" @onclick="IrALista">Cancelar</button>
-        </EditForm>
-    </div>
+                <fieldset class="form-seccion">
+                    <legend><span class="ico">schedule</span> Fecha y horario</legend>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Fecha *</label>
+                            <input class="form-control" type="date" @bind="fecha" @bind:after="AlCambiarAgendaAsync" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Hora de inicio *</label>
+                            <input class="form-control" type="time" @bind="horaInicio" @bind:after="AlCambiarInicioAsync" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Hora de finalización *</label>
+                            <input class="form-control" type="time" @bind="horaFin" @bind:after="AlCambiarAgendaAsync" />
+                        </div>
+                        <div class="col-12">
+                            <small class="text-muted me-2">Duración rápida:</small>
+                            @foreach (var minutos in new[] { 60, 90, 120, 180 })
+                            {
+                                var m = minutos;
+                                <button type="button" class="chip @(DuracionMinutos == m ? "seleccionado" : "")" @onclick="() => FijarDuracionAsync(m)">@(m / 60.0) h</button>
+                            }
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Observaciones</label>
+                            <textarea class="form-control" rows="2" maxlength="500" @bind="cita.Observaciones" placeholder="Indicaciones especiales, punto de encuentro, etc."></textarea>
+                        </div>
+                    </div>
+                </fieldset>
+
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="submit" class="btn btn-success btn-lg" disabled="@guardando">
+                        @if (guardando) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                        <span class="ico">@(EsEdicion ? "save" : "event_available")</span> @(EsEdicion ? "Guardar cambios" : "Agendar cita")
+                    </button>
+                    <button type="button" class="btn btn-light btn-lg" @onclick="IrALista">Cancelar</button>
+                </div>
+            </EditForm>
+
+            @* --- Panel lateral: agenda del instructor y verificaciones en vivo --- *@
+            <aside class="panel agenda-lateral">
+                <h3><span class="ico">event_note</span> Agenda del instructor</h3>
+                @if (InstructorActual is { } inst)
+                {
+                    <p class="mb-2">
+                        <strong>@inst.Nombre</strong><br />
+                        <small class="text-muted">
+                            @Formato.FechaLarga(fecha) · Jornada @Formato.Hora(inst.HoraEntrada)–@Formato.Hora(inst.HoraSalida)
+                            · Capacidad @inst.MaxCitasPorDia
+                        </small>
+                    </p>
+                    @if (agendaDia.Count == 0)
+                    {
+                        <p class="text-success small"><span class="ico">check_circle</span> Sin otras citas ese día.</p>
+                    }
+                    @foreach (var c in agendaDia)
+                    {
+                        var choca = c.SeTraslapaCon(Borrador());
+                        <div class="bloque-agenda @(choca ? "choque" : "") @EstadosCita.CssClase(c.Estado)">
+                            <strong>@Formato.Rango(c.HoraInicio, c.HoraFin)</strong>
+                            <span>@c.ClienteNombre</span>
+                            @if (choca) { <small><span class="ico">warning</span> Se traslapa</small> }
+                        </div>
+                    }
+                }
+                else
+                {
+                    <p class="text-muted small">Seleccione un instructor y una fecha para ver su disponibilidad.</p>
+                }
+
+                @if (validacion.Advertencias.Count > 0)
+                {
+                    <div class="advertencias">
+                        <strong><span class="ico">warning</span> Advertencias</strong>
+                        <ul>
+                            @foreach (var a in validacion.Advertencias) { <li>@a</li> }
+                        </ul>
+                    </div>
+                }
+            </aside>
+        </div>
+    }
 </div>
 
 @code {
-    // Captura el ID opcional desde la URL automáticamente
     [Parameter] public int Id { get; set; }
+    [SupplyParameterFromQuery(Name = "duplicar")] public int? DuplicarId { get; set; }
 
-    private Cita cita = new() { Estado = "Pendiente" };
-    private List<Instructor> instructores = new(); //instructor es el nombre del modelo
+    private Cita cita = new();
+    private List<Instructor> instructores = new();
+    private List<Estudiante> estudiantes = new();
+    private List<Cita> agendaDia = new();
+    private ValidacionCita validacion = new();
 
-    private List<string> tiposVehiculo = new() { "Automóvil (B-1)", "Motocicleta (A-2)", "Motocicleta (A-3)" };
-    private List<string> planteles = new() { "San José", "Heredia", "Cartago", "Alajuela", "Guanacaste", "Puntarenas", "Limón" };
-    private List<string> estadosCita = new() { "Pendiente", "Completada", "Cancelada" };
+    private int estudianteSeleccionado;
+    private string tipoVehiculoSeleccion = TiposVehiculo.Opciones[0];
+    private string otroVehiculo = string.Empty;
+    private DateTime fecha = DateTime.Today;
+    private TimeOnly horaInicio = new(8, 0);
+    private TimeOnly horaFin = new(9, 0);
+    private bool enviarCorreo = true;
+    private bool cargando = true;
+    private bool guardando;
 
-    private DateTime fechaAux { get; set; } = DateTime.Today;
-    private DateTime horaInicioAux { get; set; } = DateTime.Today;
-    private DateTime horaFinAux { get; set; } = DateTime.Today;
+    private bool EsEdicion => Id != 0;
+    private bool EsOtroVehiculo => tipoVehiculoSeleccion == TiposVehiculo.OtroVehiculo;
+    private bool CorreoInvalido => !string.IsNullOrWhiteSpace(cita.ClienteCorreo) && !Validaciones.EsCorreoValido(cita.ClienteCorreo);
+    private int DuracionMinutos => (int)(horaFin - horaInicio).TotalMinutes;
+    private Instructor? InstructorActual => instructores.FirstOrDefault(i => i.Id == cita.InstructorId);
 
-    protected override void OnInitialized()
+    protected override async Task OnParametersSetAsync()
     {
-        instructores = DB.GetInstructores() ?? new List<Instructor>();
+        cargando = true;
+        var todos = await ServicioInstructores.ListarAsync();
+        estudiantes = await Estudiantes.BuscarAsync();
 
-        // Si la URL trae un ID, significa que el usuario viene a EDITAR
-        if (Id != 0)
+        if (EsEdicion)
         {
-            var citaEncontrada = DB.GetCitas()?.FirstOrDefault(c => c.Id == Id);
-            if (citaEncontrada != null)
+            var existente = await ServicioCitas.ObtenerAsync(Id);
+            if (existente == null)
             {
-                cita = citaEncontrada;
-                fechaAux = cita.Fecha;
-                horaInicioAux = DateTime.Today.Add(cita.HoraInicio);
-                horaFinAux = DateTime.Today.Add(cita.HoraFin);
+                Acciones.Notificar(false, "Cita no encontrada", "La cita solicitada no existe.");
+                IrALista();
+                return;
             }
+            CargarDesde(existente);
+            enviarCorreo = !string.IsNullOrWhiteSpace(cita.ClienteCorreo);
+        }
+        else if (DuplicarId is { } origenId && await ServicioCitas.ObtenerAsync(origenId) is { } origen)
+        {
+            // Reagendar: copia los datos del cliente y la práctica en una cita nueva.
+            CargarDesde(origen);
+            cita.Id = 0;
+            cita.Estado = EstadosCita.Pendiente;
+            cita.ConfirmacionEnviada = false;
+            cita.MotivoCancelacion = string.Empty;
+            fecha = origen.Fecha < DateTime.Today ? DateTime.Today.AddDays(1) : origen.Fecha;
         }
         else
         {
-            // Valores por defecto para una cita nueva
-            cita.TipoVehiculo = tiposVehiculo.First();
-            cita.Plantel = planteles.First();
+            cita = new Cita { Estado = EstadosCita.Pendiente, Plantel = Planteles.Todos[0], TipoVehiculo = TiposVehiculo.Opciones[0] };
+            var proximaHora = DateTime.Now.AddHours(1);
+            horaInicio = new TimeOnly(Math.Clamp(proximaHora.Hour, 6, 20), 0);
+            horaFin = horaInicio.AddHours(1);
+        }
+
+        // Solo instructores activos, más el asignado actualmente aunque esté inactivo (para no perderlo al editar).
+        instructores = todos.Where(i => i.EstaActivo || i.Id == cita.InstructorId).ToList();
+        cargando = false;
+        await AlCambiarAgendaAsync();
+    }
+
+    private void CargarDesde(Cita origen)
+    {
+        cita = origen.Clonar();
+        estudianteSeleccionado = cita.EstudianteId;
+        fecha = cita.Fecha;
+        horaInicio = TimeOnly.FromTimeSpan(cita.HoraInicio);
+        horaFin = TimeOnly.FromTimeSpan(cita.HoraFin);
+
+        // Si el vehículo guardado no pertenece al catálogo, se muestra como "Otro vehículo" con su texto.
+        if (TiposVehiculo.EsPredefinido(cita.TipoVehiculo))
+        {
+            tipoVehiculoSeleccion = cita.TipoVehiculo;
+        }
+        else
+        {
+            tipoVehiculoSeleccion = TiposVehiculo.OtroVehiculo;
+            otroVehiculo = cita.TipoVehiculo;
         }
     }
 
-    private void GuardarCita()
+    private void SeleccionarEstudiante(object? valor)
     {
-        cita.Fecha = fechaAux;
-        cita.HoraInicio = horaInicioAux.TimeOfDay;
-        cita.HoraFin = horaFinAux.TimeOfDay;
-
-        DB.GuardarCita(cita);
-        
-        // Al terminar de guardar, volvemos automáticamente al historial
-        IrALista();
+        estudianteSeleccionado = valor is int id ? id : 0;
+        var e = estudiantes.FirstOrDefault(x => x.Id == estudianteSeleccionado);
+        if (e == null) return;
+        cita.ClienteNombre = e.NombreCompleto;
+        cita.ClienteTelefono = e.Telefono;
+        cita.ClienteCorreo = e.Correo;
+        enviarCorreo = !string.IsNullOrWhiteSpace(e.Correo);
     }
 
-    private void IrALista()
+    /// <summary>Copia del formulario con los valores actuales (para validar y detectar traslapes en vivo).</summary>
+    private Cita Borrador()
     {
-        Navigation.NavigateTo("/lista");
+        var b = cita.Clonar();
+        b.TipoVehiculo = EsOtroVehiculo ? otroVehiculo.Trim() : tipoVehiculoSeleccion;
+        b.Fecha = fecha.Date;
+        b.HoraInicio = horaInicio.ToTimeSpan();
+        b.HoraFin = horaFin.ToTimeSpan();
+        return b;
     }
+
+    private async Task AlCambiarInicioAsync()
+    {
+        // Mantiene la duración previa al mover la hora de inicio.
+        var duracion = horaFin > horaInicio ? horaFin - horaInicio : TimeSpan.FromHours(1);
+        horaFin = horaInicio.Add(duracion);
+        await AlCambiarAgendaAsync();
+    }
+
+    private async Task FijarDuracionAsync(int minutos)
+    {
+        horaFin = horaInicio.AddMinutes(minutos);
+        await AlCambiarAgendaAsync();
+    }
+
+    private async Task AlCambiarAgendaAsync()
+    {
+        agendaDia = cita.InstructorId > 0
+            ? (await ServicioInstructores.ObtenerAgendaAsync(cita.InstructorId, fecha, fecha))
+                .Where(c => c.Id != cita.Id && c.Estado != EstadosCita.Cancelada).OrderBy(c => c.HoraInicio).ToList()
+            : new List<Cita>();
+
+        // Solo se muestran advertencias en vivo; los errores aparecen al intentar guardar.
+        var v = await ServicioCitas.ValidarAsync(Borrador());
+        validacion = new ValidacionCita();
+        validacion.Advertencias.AddRange(v.Advertencias);
+    }
+
+    private async Task GuardarAsync(bool aceptarAdvertencias)
+    {
+        var borrador = Borrador();
+        guardando = true;
+        try
+        {
+            var resultado = await ServicioCitas.GuardarAsync(borrador, enviarCorreo, aceptarAdvertencias);
+            validacion = resultado.Validacion;
+
+            if (resultado.RequiereConfirmacion)
+            {
+                var continuar = await Dialogos.Confirm(
+                    "La cita tiene las siguientes advertencias:\n• " + string.Join("\n• ", resultado.Validacion.Advertencias) + "\n\n¿Desea guardarla de todas formas?",
+                    "Confirmar agendamiento",
+                    new ConfirmOptions { OkButtonText = "Sí, guardar", CancelButtonText = "Revisar", Style = "white-space: pre-line;" });
+                if (continuar == true) await GuardarAsync(true);
+                return;
+            }
+
+            if (!resultado.Exito) return;
+
+            Acciones.Notificar(true, resultado.Mensaje, $"{borrador.ClienteNombre} · {Formato.FechaLarga(borrador.Fecha)} {Formato.Hora(borrador.HoraInicio)}");
+            if (resultado.Correo is { } correo)
+                Acciones.Notificar(correo.Exito, correo.Exito ? (correo.Simulado ? "Correo simulado" : "Correo enviado al cliente") : "No se envió el correo", correo.Mensaje);
+
+            IrALista();
+        }
+        finally { guardando = false; }
+    }
+
+    private void IrALista() => Navigation.NavigateTo("/lista");
 }

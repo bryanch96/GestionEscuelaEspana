@@ -1,0 +1,90 @@
+@* Calculadora rápida. Admite el teclado físico (números, + - * /, Enter, Esc, Retroceso, %).
+   Las teclas en pantalla no toman el foco (mousedown:preventDefault) para que el teclado siga funcionando. *@
+@inject IJSRuntime JS
+
+<div class="calculadora" tabindex="0" @ref="contenedor" @onkeydown="TeclaAsync">
+    <div class="herramienta-titulo">
+        <span><span class="ico">calculate</span> Calculadora</span>
+        <button class="btn-cerrar" title="Cerrar" @onclick="OnCerrar"><span class="ico">close</span></button>
+    </div>
+    <div class="calc-pantalla">
+        <div class="calc-expresion">@motor.Expresion&nbsp;</div>
+        <div class="calc-valor @(motor.EnError ? "error" : "")" title="Clic para copiar" @onclick="CopiarAsync">@motor.PantallaFormateada</div>
+        @if (copiado)
+        {
+            <small class="calc-copiado">Copiado ✓</small>
+        }
+    </div>
+    <div class="calc-teclas" @onmousedown:preventDefault>
+        <button class="tecla fn" @onclick="motor.Limpiar">C</button>
+        <button class="tecla fn" @onclick="motor.LimpiarEntrada">CE</button>
+        <button class="tecla fn" @onclick="motor.Retroceso"><span class="ico">backspace</span></button>
+        <button class="tecla op" @onclick="() => motor.Operador('÷')">÷</button>
+
+        @foreach (var fila in new[] { new[] { 7, 8, 9 }, new[] { 4, 5, 6 }, new[] { 1, 2, 3 } })
+        {
+            foreach (var d in fila)
+            {
+                var digito = d;
+                <button class="tecla" @onclick="() => motor.Digito(digito)">@digito</button>
+            }
+            var op = fila[0] switch { 7 => '×', 4 => '−', _ => '+' };
+            <button class="tecla op" @onclick="() => motor.Operador(op)">@op</button>
+        }
+
+        <button class="tecla fn" @onclick="motor.CambiarSigno">±</button>
+        <button class="tecla" @onclick="() => motor.Digito(0)">0</button>
+        <button class="tecla" @onclick="motor.Punto">,</button>
+        <button class="tecla igual" @onclick="motor.Igual">=</button>
+        <button class="tecla fn ancho" @onclick="motor.Porcentaje">%</button>
+        <button class="tecla fn ancho" title="Agrega el IVA del 13 %" @onclick="AgregarIva">+ IVA 13 %</button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnCerrar { get; set; }
+
+    private readonly CalculadoraEngine motor = new();
+    private ElementReference contenedor;
+    private bool copiado;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender) await contenedor.FocusAsync();
+    }
+
+    private async Task TeclaAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && motor.Pantalla == "0" && string.IsNullOrEmpty(motor.Expresion))
+        {
+            await OnCerrar.InvokeAsync();
+            return;
+        }
+        motor.ProcesarTecla(e.Key);
+    }
+
+    private void AgregarIva()
+    {
+        // Atajo útil para cotizaciones: multiplica el valor actual por 1,13.
+        motor.Operador('×');
+        motor.Digito(1); motor.Punto(); motor.Digito(1); motor.Digito(3);
+        motor.Igual();
+    }
+
+    private async Task CopiarAsync()
+    {
+        if (motor.EnError) return;
+        try
+        {
+            await JS.InvokeVoidAsync("escuela.copiar", motor.Pantalla.Replace('.', ','));
+            copiado = true;
+            StateHasChanged();
+            await Task.Delay(1200);
+            copiado = false;
+        }
+        catch (JSException)
+        {
+            // El portapapeles puede no estar disponible en algunos WebView; no es crítico.
+        }
+    }
+}

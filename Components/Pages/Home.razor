@@ -1,195 +1,262 @@
-﻿@page "/"
-@using GestionEscuelaEspana.Models
-@using GestionEscuelaEspana.Data
-@using Radzen
-@using Radzen.Blazor
-@inject DatabaseService DB
+@page "/"
 @implements IDisposable
+@inject IDashboardService Dashboard
+@inject IConfiguracionService Configuracion
+@inject AccionesCita Acciones
+@inject DialogService Dialogos
+@inject ISesionUsuario Sesion
+@inject NavigationManager Navigation
 
 <div class="dashboard">
     <div class="db-header">
         <div>
-            <h1>Escuela España</h1>
-            <p class="subtitle">Sistema de Control Operativo</p>
+            <h1>@nombreEscuela</h1>
+            <p class="subtitle">@Saludo, @(Sesion.Actual?.NombreCompleto.Split(' ')[0]). Este es el estado de la escuela hoy.</p>
         </div>
-        <div class="live-clock">
-    <i class="rz-icon-calendar"></i>
-    <span>@horaActual.ToString("dd/MM/yyyy hh:mm:ss tt")</span>
-</div>
+        <RelojDashboard />
     </div>
 
-    @if (proximaCitaInminente != null)
+    @if (resumen == null)
     {
-        <div class="alert-banner">
-            <span class="pulse-icon">⚠️</span> 
-            <strong>Próxima cita en menos de 3 horas:</strong> @proximaCitaInminente.ClienteNombre - Plantel @proximaCitaInminente.Plantel a las @proximaCitaInminente.HoraInicio.ToString(@"hh\:mm")
+        <div class="text-center p-5"><div class="spinner-border text-primary"></div></div>
+    }
+    else
+    {
+        @if (resumen.CitaInminente is { } inminente)
+        {
+            <div class="alert-banner" role="button" @onclick="() => VerCitaAsync(inminente)">
+                <span class="ico pulse-icon">notifications_active</span>
+                <div>
+                    <strong>Próxima cita en @MinutosPara(inminente):</strong>
+                    @inminente.ClienteNombre con @inminente.InstructorNombre · Plantel @inminente.Plantel a las @Formato.Hora(inminente.HoraInicio)
+                </div>
+                <span class="ico ms-auto">chevron_right</span>
+            </div>
+        }
+        @if (resumen.CitasVencidasSinCerrar.Count > 0)
+        {
+            <div class="alert-banner peligro" role="button" @onclick="() => AbrirListaAsync(EstadosCita.Pendiente, soloVencidas: true)">
+                <span class="ico">pending_actions</span>
+                <div>
+                    <strong>@resumen.CitasVencidasSinCerrar.Count cita(s) ya pasaron y siguen pendientes.</strong>
+                    Márquelas como completadas, no asistió o canceladas para mantener las métricas al día.
+                </div>
+                <span class="ico ms-auto">chevron_right</span>
+            </div>
+        }
+
+        @* --- Tarjetas principales interactivas --- *@
+        <div class="metrics-grid">
+            <button class="metric-card yellow interactiva" @onclick="() => AbrirListaAsync(EstadosCita.Pendiente)">
+                <div class="metric-icono"><span class="ico">pending_actions</span></div>
+                <div>
+                    <h3>Citas Pendientes</h3>
+                    <span class="number">@resumen.Pendientes</span>
+                    <span class="metric-accion">Ver, modificar o cancelar <span class="ico">arrow_forward</span></span>
+                </div>
+            </button>
+            <button class="metric-card green interactiva" @onclick="() => AbrirListaAsync(EstadosCita.Completada)">
+                <div class="metric-icono"><span class="ico">task_alt</span></div>
+                <div>
+                    <h3>Citas Completadas</h3>
+                    <span class="number">@resumen.Completadas</span>
+                    <span class="metric-accion">Historial rápido <span class="ico">arrow_forward</span></span>
+                </div>
+            </button>
+            <button class="metric-card blue interactiva" @onclick="AbrirInstructoresAsync">
+                <div class="metric-icono"><span class="ico">badge</span></div>
+                <div>
+                    <h3>Instructores Activos</h3>
+                    <span class="number">@resumen.InstructoresActivos</span>
+                    <span class="metric-accion">Perfiles y edición <span class="ico">arrow_forward</span></span>
+                </div>
+            </button>
+        </div>
+
+        @* --- Indicadores del negocio --- *@
+        <div class="kpi-grid">
+            <div class="kpi">
+                <small><span class="ico">today</span> Citas de hoy</small>
+                <strong>@resumen.CitasHoyCompletadas / @resumen.CitasHoy</strong>
+                <span class="kpi-pie">completadas</span>
+            </div>
+            <div class="kpi">
+                <small><span class="ico">payments</span> Ingresos del mes</small>
+                <strong>@Formato.Colones(resumen.IngresosMes)</strong>
+                @if (resumen.VariacionIngresos is { } variacion)
+                {
+                    <span class="kpi-pie @(variacion >= 0 ? "sube" : "baja")">
+                        <span class="ico">@(variacion >= 0 ? "trending_up" : "trending_down")</span> @variacion.ToString("+0.#;-0.#")% vs. mes anterior
+                    </span>
+                }
+                else
+                {
+                    <span class="kpi-pie">citas completadas</span>
+                }
+            </div>
+            <div class="kpi">
+                <small><span class="ico">event_busy</span> Cancelación del mes</small>
+                <strong class="@(resumen.TasaCancelacionMes > 20 ? "text-danger" : "")">@resumen.TasaCancelacionMes.ToString("0.#")%</strong>
+                <span class="kpi-pie">incluye "no asistió"</span>
+            </div>
+            <div class="kpi">
+                <small><span class="ico">groups</span> Estudiantes activos</small>
+                <strong>@resumen.EstudiantesActivos</strong>
+                <span class="kpi-pie">registrados</span>
+            </div>
+        </div>
+
+        <div class="db-fila">
+            <div class="panel chart-section">
+                <h3>Citas por mes (@DateTime.Today.Year)</h3>
+                @if (resumen.SerieMensual.Any(p => p.Completadas + p.Pendientes + p.Canceladas > 0))
+                {
+                    <RadzenChart Style="height: 280px;">
+                        <RadzenStackedColumnSeries Data="@resumen.SerieMensual" CategoryProperty="Mes" ValueProperty="Completadas" Title="Completadas" Fill="#10b981" />
+                        <RadzenStackedColumnSeries Data="@resumen.SerieMensual" CategoryProperty="Mes" ValueProperty="Pendientes" Title="Pendientes" Fill="#f59e0b" />
+                        <RadzenStackedColumnSeries Data="@resumen.SerieMensual" CategoryProperty="Mes" ValueProperty="Canceladas" Title="Canceladas / no asistió" Fill="#ef4444" />
+                        <RadzenCategoryAxis Padding="12" />
+                        <RadzenValueAxis Min="0">
+                            <RadzenGridLines Visible="true" />
+                        </RadzenValueAxis>
+                        <RadzenLegend Position="LegendPosition.Bottom" />
+                    </RadzenChart>
+                }
+                else
+                {
+                    <p class="text-center text-muted p-4">Aún no hay citas registradas este año.</p>
+                }
+            </div>
+
+            <div class="panel top-instructores">
+                <h3>Instructores del mes</h3>
+                @if (resumen.TopInstructores.Count == 0)
+                {
+                    <p class="text-muted">Sin citas completadas este mes.</p>
+                }
+                @foreach (var (top, indice) in resumen.TopInstructores.Select((t, i) => (t, i)))
+                {
+                    <div class="top-fila">
+                        <span class="medalla m@(indice + 1)">@(indice + 1)</span>
+                        <div class="flex-grow-1">
+                            <strong>@top.Nombre</strong>
+                            <small class="d-block text-muted">@top.Horas.ToString("0.#") h impartidas</small>
+                        </div>
+                        <strong>@top.Completadas</strong>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="panel proximas-section">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h3 class="m-0">Próximas citas (3 días)</h3>
+                @if (PuedeGestionar)
+                {
+                    <a class="btn btn-sm btn-primary" href="citas"><span class="ico">add</span> Nueva cita</a>
+                }
+            </div>
+            <div class="table-responsive">
+                <table class="db-table">
+                    <thead>
+                        <tr>
+                            <th>Cliente</th>
+                            <th>Instructor</th>
+                            <th class="d-none d-md-table-cell">Plantel</th>
+                            <th>Fecha y hora</th>
+                            <th class="text-end">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in resumen.ProximasCitas)
+                        {
+                            <tr @key="c.Id" class="fila-clic" @onclick="() => VerCitaAsync(c)">
+                                <td><strong>@c.ClienteNombre</strong><br /><small>@c.ClienteTelefono</small></td>
+                                <td>@c.InstructorNombre</td>
+                                <td class="d-none d-md-table-cell">@c.Plantel</td>
+                                <td><strong>@Formato.DiaRelativo(c.Fecha)</strong><br /><small>@Formato.Rango(c.HoraInicio, c.HoraFin)</small></td>
+                                <td class="text-end text-nowrap" @onclick:stopPropagation>
+                                    <button class="btn-icono exito" title="WhatsApp" @onclick="() => Acciones.WhatsAppRecordatorioAsync(c)"><span class="ico">chat</span></button>
+                                    @if (PuedeGestionar)
+                                    {
+                                        <button class="btn-icono exito" title="Marcar completada" @onclick="() => CambiarEstadoAsync(c, EstadosCita.Completada)"><span class="ico">task_alt</span></button>
+                                        <button class="btn-icono" title="Modificar" @onclick='() => Navigation.NavigateTo($"/citas/{c.Id}")'><span class="ico">edit</span></button>
+                                        <button class="btn-icono peligro" title="Cancelar" @onclick="() => CambiarEstadoAsync(c, EstadosCita.Cancelada)"><span class="ico">event_busy</span></button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (resumen.ProximasCitas.Count == 0)
+                        {
+                            <tr><td colspan="5" class="text-center text-muted">No hay citas agendadas para los siguientes 3 días.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         </div>
     }
-
-    <div class="metrics-grid">
-        <div class="metric-card yellow">
-            <h3>Citas Pendientes</h3>
-            <span class="number">@citasPendientes</span>
-        </div>
-        <div class="metric-card green">
-            <h3>Citas Completadas</h3>
-            <span class="number">@citasCompletadas</span>
-        </div>
-        <div class="metric-card blue">
-            <h3>Instructores Activos</h3>
-            <span class="number">@totalInstructores</span>
-        </div>
-    </div>
-
-    <div class="chart-section mb-4" style="background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 24px;">
-        <h3 style="color: #1e293b; font-size: 1.2rem; margin-bottom: 16px;">Volumen de Citas por Mes</h3>
-        @if (datosGrafico != null && datosGrafico.Any())
-        {
-            <RadzenChart>
-                <RadzenColumnSeries Data="@datosGrafico" 
-                                    CategoryProperty="MesNombre" 
-                                    ValueProperty="Cantidad" 
-                                    Title="Total Citas" 
-                                    Fills="@(new [] { "#0284c7" })" />
-                <RadzenCategoryAxis Padding="20" />
-                <RadzenValueAxis Min="0" Step="1">
-                    <RadzenGridLines Visible="true" />
-                </RadzenValueAxis>
-                <RadzenLegend Visible="false" />
-            </RadzenChart>
-        }
-        else
-        {
-            <p style="text-align: center; color: #888; padding: 20px;">No hay datos históricos suficientes para generar el gráfico.</p>
-        }
-    </div>
-
-    <div class="proximas-section">
-        <h2>Próximas Citas (3 días)</h2>
-        <table class="db-table">
-            <thead>
-                <tr>
-                    <th>Cliente</th>
-                    <th>Instructor</th>
-                    <th>Plantel</th>
-                    <th>Fecha y Hora</th> 
-                    <th style="width: 200px;">Acción Estado</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var c in proximasCitas)
-                {
-                    <tr @key="c.Id">
-                        <td><strong>@c.ClienteNombre</strong><br><small>@c.ClienteTelefono</small></td>
-                        <td>@c.InstructorNombre</td>
-                        <td>@c.Plantel</td>
-                        <td>@c.Fecha.ToString("dd/MM/yyyy")<br><small>@c.HoraInicio.ToString(@"hh\:mm")</small></td>
-                        <td>
-                            <RadzenDropDown TValue="string" 
-                                            Value="@c.Estado" 
-                                            Data="@estadosCita" 
-                                            Change="@(nuevoEstado => CambiarEstadoCita(c, nuevoEstado?.ToString() ?? "Pendiente"))" 
-                                            Style="width:100%; font-size: 0.85rem;" />
-                        </td>
-                    </tr>
-                }
-                @if (!proximasCitas.Any())
-                {
-                    <tr><td colspan="5" style="text-align:center; color:#888;">No hay citas agendadas para los siguientes 3 días</td></tr>
-                }
-            </tbody>
-        </table>
-    </div>
 </div>
 
 @code {
-    private DateTime horaActual = DateTime.Now;
-    private System.Threading.Timer? timer;
+    private ResumenDashboard? resumen;
+    private string nombreEscuela = "Escuela España";
+    private System.Threading.Timer? refresco;
 
-    private int citasPendientes;
-    private int citasCompletadas;
-    private int totalInstructores;
-    private List<Cita> proximasCitas = new();
-    private Cita? proximaCitaInminente;
-    private List<string> estadosCita = new() { "Pendiente", "Completada", "Cancelada" };
+    private bool PuedeGestionar => Sesion.TieneRol(Roles.Administrador, Roles.Recepcionista);
 
-    private List<DatosMes> datosGrafico = new();
+    private static string Saludo =>
+        DateTime.Now.Hour is >= 5 and <= 11 ? "Buenos días" : DateTime.Now.Hour is >= 12 and <= 18 ? "Buenas tardes" : "Buenas noches";
 
-    public class DatosMes
+    protected override async Task OnInitializedAsync()
     {
-        public string MesNombre { get; set; } = string.Empty;
-        public int Cantidad { get; set; }
-        public int MesNumero { get; set; }
-    }
+        nombreEscuela = (await Configuracion.ObtenerAsync()).NombreEscuela;
+        await CargarAsync();
 
-    protected override void OnInitialized()
-    {
-        CargarDatosDashboard();
-
-        timer = new System.Threading.Timer(_ =>
+        // Las métricas se refrescan cada minuto (el reloj tiene su propio ciclo de un segundo).
+        refresco = new System.Threading.Timer(_ => InvokeAsync(async () =>
         {
-            InvokeAsync(() =>
+            await CargarAsync();
+            StateHasChanged();
+        }), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+    }
+
+    private async Task CargarAsync() => resumen = await Dashboard.ObtenerResumenAsync();
+
+    private static string MinutosPara(Cita c)
+    {
+        var minutos = (int)Math.Ceiling((c.InicioCompleto - DateTime.Now).TotalMinutes);
+        return minutos >= 60 ? $"{minutos / 60} h {minutos % 60} min" : $"{minutos} min";
+    }
+
+    private async Task AbrirListaAsync(string estado, bool soloVencidas = false)
+    {
+        var titulo = estado == EstadosCita.Pendiente ? "Citas pendientes" : "Historial de citas completadas";
+        await Dialogos.OpenAsync<ListaCitasDialog>(titulo,
+            new Dictionary<string, object?>
             {
-                horaActual = DateTime.Now;
-                VerificarNotificaciones();
-                StateHasChanged();
-            });
-        }, null, 0, 1000);
+                [nameof(ListaCitasDialog.Estado)] = estado,
+                [nameof(ListaCitasDialog.SoloVencidas)] = soloVencidas
+            },
+            new DialogOptions { Width = "760px", Height = "80vh", CloseDialogOnOverlayClick = true });
+        await CargarAsync();
     }
 
-    private void CargarDatosDashboard()
+    private async Task AbrirInstructoresAsync()
     {
-        var todasCitas = DB.GetCitas() ?? new List<Cita>();
-        var añoActual = DateTime.Today.Year; 
-
-        citasPendientes = todasCitas.Count(c => c.Estado == "Pendiente");
-        citasCompletadas = todasCitas.Count(c => c.Estado == "Completada");
-        totalInstructores = DB.GetInstructores()?.Count ?? 0;
-
-        proximasCitas = todasCitas
-            .Where(c => c.Fecha.Date >= DateTime.Today && c.Fecha.Date <= DateTime.Today.AddDays(3) && c.Estado == "Pendiente")
-            .OrderBy(c => c.Fecha).ThenBy(c => c.HoraInicio)
-            .ToList();
-
-        System.Globalization.CultureInfo idioma = new System.Globalization.CultureInfo("es-CR");
-        
-        datosGrafico = todasCitas
-            .Where(c => c.Fecha.Year == añoActual) 
-            .GroupBy(c => new { c.Fecha.Year, c.Fecha.Month })
-            .Select(g => new DatosMes
-            {
-                MesNombre = idioma.DateTimeFormat.GetMonthName(g.Key.Month).ToUpper()[0] + 
-                            idioma.DateTimeFormat.GetMonthName(g.Key.Month).Substring(1),
-                Cantidad = g.Count(),
-                MesNumero = g.Key.Month
-            })
-            .OrderBy(d => d.MesNumero)
-            .ToList();
+        await Dialogos.OpenAsync<InstructoresActivosDialog>("Instructores activos", new Dictionary<string, object?>(),
+            new DialogOptions { Width = "720px", CloseDialogOnOverlayClick = true });
+        await CargarAsync();
     }
 
-    private void CambiarEstadoCita(Cita citaSeleccionada, string nuevoEstado)
+    private async Task VerCitaAsync(Cita c)
     {
-        if (citaSeleccionada != null && !string.IsNullOrEmpty(nuevoEstado))
-        {
-            citaSeleccionada.Estado = nuevoEstado;
-            DB.GuardarCita(citaSeleccionada);
-
-            CargarDatosDashboard();
-            VerificarNotificaciones();
-        }
+        if (await Acciones.VerDetalleAsync(c.Id)) await CargarAsync();
     }
 
-    private void VerificarNotificaciones()
+    private async Task CambiarEstadoAsync(Cita c, string estado)
     {
-        var todasCitas = DB.GetCitas() ?? new List<Cita>();
-        var ahora = DateTime.Now;
-
-        proximaCitaInminente = todasCitas.FirstOrDefault(c => 
-            c.Estado == "Pendiente" && 
-            c.Fecha.Date.Add(c.HoraInicio) > ahora && 
-            (c.Fecha.Date.Add(c.HoraInicio) - ahora).TotalMinutes <= 180
-        );
+        if (await Acciones.CambiarEstadoAsync(c, estado)) await CargarAsync();
     }
 
-    public void Dispose() => timer?.Dispose();
+    public void Dispose() => refresco?.Dispose();
 }

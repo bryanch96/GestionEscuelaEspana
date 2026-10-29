@@ -1,0 +1,61 @@
+@* Equipo activo con su carga del día y desempeño del mes (desde la tarjeta del dashboard). *@
+@inject IInstructorService Instructores
+@inject DialogService Dialogos
+
+@if (lista == null)
+{
+    <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
+}
+else if (lista.Count == 0)
+{
+    <p class="text-center text-muted py-4">No hay instructores activos.</p>
+}
+else
+{
+    <div class="lista-citas">
+        @foreach (var i in lista)
+        {
+            var r = rendimientos.GetValueOrDefault(i.Id) ?? RendimientoInstructor.Vacio(i.Id);
+            var carga = i.MaxCitasPorDia == 0 ? 0 : Math.Min(100, 100 * r.CitasHoy / i.MaxCitasPorDia);
+            <div class="fila-cita" @key="i.Id" @onclick="() => VerPerfilAsync(i)">
+                <span class="avatar">@Iniciales(i.Nombre)</span>
+                <div class="flex-grow-1">
+                    <strong>@i.Nombre</strong>
+                    <small class="d-block text-muted">
+                        Licencias @string.Join(", ", i.Categorias) · Jornada @Formato.Hora(i.HoraEntrada)–@Formato.Hora(i.HoraSalida)
+                    </small>
+                    <div class="carga" title="Citas de hoy respecto a su capacidad diaria">
+                        <div class="progreso"><span class="@(carga >= 100 ? "lleno" : "")" style="width:@carga%"></span></div>
+                        <small>Hoy: @r.CitasHoy / @i.MaxCitasPorDia</small>
+                    </div>
+                </div>
+                <div class="text-end">
+                    <strong>@r.Completadas</strong> <small class="text-muted">completadas</small>
+                    <small class="d-block text-muted">Cumplimiento @r.TasaCumplimiento.ToString("0.#")%</small>
+                </div>
+                <span class="ico text-muted">chevron_right</span>
+            </div>
+        }
+    </div>
+    <small class="text-muted">Indicadores del mes en curso.</small>
+}
+
+@code {
+    private List<Instructor>? lista;
+    private Dictionary<int, RendimientoInstructor> rendimientos = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var hoy = DateTime.Today;
+        rendimientos = await Instructores.ObtenerRendimientosAsync(new DateTime(hoy.Year, hoy.Month, 1), hoy.AddMonths(1));
+        lista = await Instructores.ListarAsync(soloActivos: true);
+    }
+
+    private async Task VerPerfilAsync(Instructor i) =>
+        await Dialogos.OpenAsync<InstructorPerfil>(i.Nombre,
+            new Dictionary<string, object?> { [nameof(InstructorPerfil.InstructorId)] = i.Id },
+            new DialogOptions { Width = "720px", CloseDialogOnOverlayClick = true });
+
+    public static string Iniciales(string nombre) =>
+        string.Concat(nombre.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(p => char.ToUpperInvariant(p[0])));
+}

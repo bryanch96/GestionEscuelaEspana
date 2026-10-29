@@ -1,0 +1,153 @@
+@* Ficha del instructor: datos, disponibilidad, indicadores de desempeño y agenda próxima. *@
+@inject IInstructorService Instructores
+@inject ICanalesComunicacion Canales
+@inject AccionesCita Acciones
+@inject DialogService Dialogos
+@inject NavigationManager Navigation
+@inject ISesionUsuario Sesion
+
+@if (instructor == null)
+{
+    <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
+}
+else
+{
+    <div class="perfil">
+        <div class="perfil-encabezado">
+            <span class="avatar grande">@InstructoresActivosDialog.Iniciales(instructor.Nombre)</span>
+            <div class="flex-grow-1">
+                <h3>@instructor.Nombre</h3>
+                <span class="badge estado-instructor @instructor.Estado.ToLowerInvariant()">@instructor.Estado</span>
+                @foreach (var cat in instructor.Categorias)
+                {
+                    <span class="chip pequeno">@cat</span>
+                }
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+                <button class="btn btn-sm btn-success" @onclick="WhatsAppAsync"><span class="ico">chat</span></button>
+                @if (!string.IsNullOrWhiteSpace(instructor.Correo))
+                {
+                    <button class="btn btn-sm btn-outline-primary" @onclick="CorreoAsync"><span class="ico">mail</span></button>
+                }
+                @if (PuedeEditar)
+                {
+                    <button class="btn btn-sm btn-primary" @onclick="Editar"><span class="ico">edit</span> Editar</button>
+                }
+            </div>
+        </div>
+
+        <div class="detalle-grid">
+            <div><small>Teléfono</small><strong>@instructor.Telefono</strong></div>
+            <div><small>Correo</small><strong>@(string.IsNullOrWhiteSpace(instructor.Correo) ? "—" : instructor.Correo)</strong></div>
+            <div><small>Identificación</small><strong>@(string.IsNullOrWhiteSpace(instructor.Identificacion) ? "—" : instructor.Identificacion)</strong></div>
+            <div><small>Ingreso</small><strong>@Formato.Fecha(instructor.FechaIngreso)</strong></div>
+            <div><small>Jornada</small><strong>@Formato.Hora(instructor.HoraEntrada) – @Formato.Hora(instructor.HoraSalida)</strong></div>
+            <div><small>Días laborales</small><strong>@string.Join(" ", instructor.Dias.Select(Formato.NombreDia))</strong></div>
+            <div><small>Capacidad diaria</small><strong>@instructor.MaxCitasPorDia citas</strong></div>
+            <div>
+                <small>Vence licencia</small>
+                <strong class="@(LicenciaPorVencer ? "text-danger" : "")">@(instructor.VencimientoLicencia is { } v ? Formato.Fecha(v) : "—")</strong>
+            </div>
+            @if (!string.IsNullOrWhiteSpace(instructor.ContactoEmergenciaNombre))
+            {
+                <div><small>Emergencias</small><strong>@instructor.ContactoEmergenciaNombre · @instructor.ContactoEmergenciaTelefono</strong></div>
+            }
+        </div>
+
+        <div class="segmentado my-3">
+            <button class="@(periodo == 0 ? "activo" : "")" @onclick="() => CambiarPeriodoAsync(0)">Este mes</button>
+            <button class="@(periodo == 1 ? "activo" : "")" @onclick="() => CambiarPeriodoAsync(1)">Últimos 3 meses</button>
+            <button class="@(periodo == 2 ? "activo" : "")" @onclick="() => CambiarPeriodoAsync(2)">Este año</button>
+        </div>
+
+        @if (rendimiento != null)
+        {
+            <div class="kpi-mini-grid">
+                <div><strong>@rendimiento.Completadas</strong><small>Completadas</small></div>
+                <div><strong>@rendimiento.Pendientes</strong><small>Pendientes</small></div>
+                <div><strong>@(rendimiento.Canceladas + rendimiento.NoAsistio)</strong><small>Canceladas / no asistió</small></div>
+                <div><strong>@rendimiento.TasaCumplimiento.ToString("0.#")%</strong><small>Cumplimiento</small></div>
+                <div><strong>@rendimiento.HorasImpartidas.ToString("0.#") h</strong><small>Horas impartidas</small></div>
+                <div><strong>@Formato.Colones(rendimiento.Ingresos)</strong><small>Ingresos generados</small></div>
+            </div>
+        }
+
+        <h5 class="mt-4">Agenda de los próximos 7 días</h5>
+        @if (agenda.Count == 0)
+        {
+            <p class="text-muted">Sin citas pendientes en los próximos días.</p>
+        }
+        <div class="lista-citas">
+            @foreach (var c in agenda)
+            {
+                <div class="fila-cita" @key="c.Id" @onclick="() => VerCitaAsync(c)">
+                    <div class="fila-fecha"><strong>@Formato.DiaRelativo(c.Fecha)</strong><small>@Formato.Hora(c.HoraInicio)</small></div>
+                    <div class="flex-grow-1"><strong>@c.ClienteNombre</strong><small class="d-block text-muted">@c.Plantel · @c.TipoVehiculo</small></div>
+                    <EstadoBadge Estado="@c.Estado" />
+                </div>
+            }
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(instructor.Notas))
+        {
+            <div class="detalle-nota mt-3"><span class="ico">sticky_note_2</span> @instructor.Notas</div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int InstructorId { get; set; }
+
+    private Instructor? instructor;
+    private RendimientoInstructor? rendimiento;
+    private List<Cita> agenda = new();
+    private int periodo;
+
+    private bool PuedeEditar => Sesion.TieneRol(Roles.Administrador, Roles.Recepcionista);
+    private bool LicenciaPorVencer => instructor?.VencimientoLicencia is { } v && v.Date <= DateTime.Today.AddDays(30);
+
+    protected override async Task OnInitializedAsync()
+    {
+        instructor = await Instructores.ObtenerAsync(InstructorId);
+        if (instructor == null) return;
+        await CambiarPeriodoAsync(0);
+        var proximas = await Instructores.ObtenerAgendaAsync(InstructorId, DateTime.Today, DateTime.Today.AddDays(7));
+        agenda = proximas.Where(c => c.Estado == EstadosCita.Pendiente).OrderBy(c => c.InicioCompleto).ToList();
+    }
+
+    private async Task CambiarPeriodoAsync(int p)
+    {
+        periodo = p;
+        var hoy = DateTime.Today;
+        var desde = p switch
+        {
+            0 => new DateTime(hoy.Year, hoy.Month, 1),
+            1 => new DateTime(hoy.Year, hoy.Month, 1).AddMonths(-2),
+            _ => new DateTime(hoy.Year, 1, 1)
+        };
+        rendimiento = await Instructores.ObtenerRendimientoAsync(InstructorId, desde, new DateTime(hoy.Year, hoy.Month, 1).AddMonths(1).AddDays(-1));
+    }
+
+    private void Editar()
+    {
+        Dialogos.Close(null);
+        Navigation.NavigateTo($"/instructores?editar={InstructorId}");
+    }
+
+    private async Task WhatsAppAsync()
+    {
+        var r = await Canales.AbrirWhatsAppAsync(instructor!.Telefono, $"Hola {instructor.Nombre}, ");
+        if (!r.Exito) Acciones.Notificar(false, "WhatsApp", r.Mensaje);
+    }
+
+    private async Task CorreoAsync()
+    {
+        var r = await Canales.AbrirCorreoAsync(instructor!.Correo);
+        if (!r.Exito) Acciones.Notificar(false, "Correo", r.Mensaje);
+    }
+
+    private async Task VerCitaAsync(Cita c)
+    {
+        if (await Acciones.VerDetalleAsync(c.Id)) await OnInitializedAsync();
+    }
+}

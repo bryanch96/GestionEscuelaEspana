@@ -1,0 +1,189 @@
+@page "/configuracion"
+@attribute [Authorize(Roles = Roles.Administrador)]
+@inject IConfiguracionService ServicioConfiguracion
+@inject IEmailService Correo
+@inject IRepositorio<RegistroCorreo> Bitacora
+@inject ISesionUsuario Sesion
+@inject IAppPaths Rutas
+@inject AccionesCita Acciones
+
+<div class="container-fluid p-md-4">
+    <div class="pagina-encabezado">
+        <div>
+            <h1>Configuración</h1>
+            <p class="subtitle">Datos de la escuela y envío de correos electrónicos.</p>
+        </div>
+    </div>
+
+    @if (config == null)
+    {
+        <div class="text-center p-5"><div class="spinner-border text-primary"></div></div>
+    }
+    else
+    {
+        <div class="config-layout">
+            <EditForm Model="config" OnSubmit="GuardarAsync" class="panel">
+                <fieldset class="form-seccion">
+                    <legend><span class="ico">storefront</span> Escuela</legend>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Nombre de la escuela</label>
+                            <input class="form-control" @bind="config.NombreEscuela" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Teléfono</label>
+                            <input class="form-control" @bind="config.TelefonoEscuela" />
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Código de país (WhatsApp)</label>
+                            <input class="form-control" @bind="config.CodigoPais" maxlength="4" />
+                        </div>
+                    </div>
+                </fieldset>
+
+                <fieldset class="form-seccion">
+                    <legend><span class="ico">alternate_email</span> Servidor de correo (SMTP)</legend>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="smtp" @bind="config.SmtpHabilitado" />
+                        <label class="form-check-label" for="smtp">
+                            Enviar correos reales por SMTP
+                            <small class="d-block text-muted">Desactivado: los correos se simulan y se guardan como archivos .eml en la bandeja de salida local.</small>
+                        </label>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-8">
+                            <label class="form-label">Servidor</label>
+                            <input class="form-control" @bind="config.SmtpServidor" placeholder="smtp.gmail.com" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Puerto</label>
+                            <input class="form-control" type="number" @bind="config.SmtpPuerto" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Usuario SMTP</label>
+                            <input class="form-control" @bind="config.SmtpUsuario" autocomplete="off" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Contraseña / contraseña de aplicación</label>
+                            <input class="form-control" type="password" @bind="passwordSmtp" placeholder="@(tienePassword ? "•••••••• (guardada)" : "")" autocomplete="new-password" />
+                            <small class="text-muted">Se guarda cifrada en el almacenamiento seguro del dispositivo.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Nombre del remitente</label>
+                            <input class="form-control" @bind="config.RemitenteNombre" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Correo del remitente</label>
+                            <input class="form-control" type="email" @bind="config.RemitenteCorreo" />
+                        </div>
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="ssl" @bind="config.SmtpUsarSsl" />
+                                <label class="form-check-label" for="ssl">Conexión segura (SSL/TLS) — recomendado</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="presets mt-2">
+                        <small class="text-muted me-1">Preajustes:</small>
+                        <button type="button" class="chip" @onclick='() => Preajuste("smtp.gmail.com", 587)'>Gmail</button>
+                        <button type="button" class="chip" @onclick='() => Preajuste("smtp.office365.com", 587)'>Outlook / Microsoft 365</button>
+                        <button type="button" class="chip" @onclick='() => Preajuste("smtp.mail.yahoo.com", 465)'>Yahoo</button>
+                    </div>
+                </fieldset>
+
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="submit" class="btn btn-primary" disabled="@procesando"><span class="ico">save</span> Guardar configuración</button>
+                    <button type="button" class="btn btn-outline-secondary" disabled="@procesando" @onclick="ProbarAsync"><span class="ico">outgoing_mail</span> Enviarme un correo de prueba</button>
+                </div>
+            </EditForm>
+
+            <aside class="panel">
+                <h3><span class="ico">mark_email_unread</span> Bitácora de correos</h3>
+                <small class="text-muted d-block mb-2">Bandeja de salida simulada: @Path.Combine(Rutas.CarpetaDatos, "BandejaSalida")</small>
+                @if (registros.Count == 0)
+                {
+                    <p class="text-muted">Aún no se han enviado correos.</p>
+                }
+                <div class="bitacora">
+                    @foreach (var r in registros)
+                    {
+                        <div class="bitacora-item @(r.Exitoso ? "" : "fallo")" title="@r.Detalle">
+                            <span class="ico">@(r.Exitoso ? (r.Simulado ? "drafts" : "mark_email_read") : "error")</span>
+                            <div class="flex-grow-1">
+                                <strong>@r.Asunto</strong>
+                                <small class="d-block text-muted">@r.Destinatario · @r.Categoria · @r.Fecha.ToString("dd/MM HH:mm")</small>
+                            </div>
+                            @if (r.Simulado) { <span class="chip pequeno">simulado</span> }
+                        </div>
+                    }
+                </div>
+            </aside>
+        </div>
+    }
+</div>
+
+@code {
+    private ConfiguracionApp? config;
+    private List<RegistroCorreo> registros = new();
+    private string passwordSmtp = string.Empty;
+    private bool tienePassword;
+    private bool procesando;
+
+    protected override async Task OnInitializedAsync()
+    {
+        config = await ServicioConfiguracion.ObtenerAsync();
+        try
+        {
+            tienePassword = !string.IsNullOrEmpty(await ServicioConfiguracion.ObtenerPasswordSmtpAsync());
+        }
+        catch (Exception)
+        {
+            tienePassword = false; // Almacenamiento seguro no disponible (p. ej., app sin empaquetar en Windows).
+        }
+        await CargarBitacoraAsync();
+    }
+
+    private async Task CargarBitacoraAsync() =>
+        registros = (await Bitacora.ListarAsync()).OrderByDescending(r => r.Fecha).Take(50).ToList();
+
+    private void Preajuste(string servidor, int puerto)
+    {
+        config!.SmtpServidor = servidor;
+        config.SmtpPuerto = puerto;
+        config.SmtpUsarSsl = true;
+        config.SmtpHabilitado = true;
+    }
+
+    private async Task GuardarAsync()
+    {
+        procesando = true;
+        try
+        {
+            var r = await ServicioConfiguracion.GuardarAsync(config!);
+            if (r.Exito && !string.IsNullOrEmpty(passwordSmtp))
+            {
+                await ServicioConfiguracion.GuardarPasswordSmtpAsync(passwordSmtp);
+                passwordSmtp = string.Empty;
+                tienePassword = true;
+            }
+            Acciones.Notificar(r.Exito, "Configuración", r.Mensaje);
+        }
+        catch (Exception ex)
+        {
+            Acciones.Notificar(false, "No se pudo guardar la contraseña", ex.Message);
+        }
+        finally { procesando = false; }
+    }
+
+    private async Task ProbarAsync()
+    {
+        procesando = true;
+        try
+        {
+            var r = await Correo.EnviarAsync(PlantillasCorreo.Prueba(Sesion.Actual!.Correo, config!.NombreEscuela));
+            Acciones.Notificar(r.Exito, r.Exito ? (r.Simulado ? "Correo simulado" : "Correo de prueba enviado") : "Error de envío", r.Mensaje);
+            await CargarBitacoraAsync();
+        }
+        finally { procesando = false; }
+    }
+}

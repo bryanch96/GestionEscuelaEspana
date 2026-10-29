@@ -1,0 +1,65 @@
+@* Escucha el servicio de alarmas a nivel de layout: avisa en cualquier pantalla de la app. *@
+@implements IDisposable
+@inject IAlarmaService Alarmas
+@inject IJSRuntime JS
+
+@if (actual != null)
+{
+    <div class="alarma-overlay">
+        <div class="alarma-modal" role="alertdialog" aria-live="assertive">
+            <span class="ico alarma-icono">notifications_active</span>
+            <h2>@(actual.Tipo == TipoRecordatorio.Alarma ? "¡Alarma!" : "¡Tiempo cumplido!")</h2>
+            <p class="lead">@actual.Etiqueta</p>
+            <div class="d-flex gap-2 justify-content-center">
+                <button class="btn btn-outline-secondary" @onclick="() => PosponerAsync(5)"><span class="ico">snooze</span> Posponer 5 min</button>
+                <button class="btn btn-danger btn-lg" @onclick="DetenerAsync"><span class="ico">stop_circle</span> Detener</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly Queue<Recordatorio> cola = new();
+    private Recordatorio? actual;
+
+    protected override void OnInitialized() => Alarmas.Disparado += AlDisparar;
+
+    private void AlDisparar(Recordatorio r) => InvokeAsync(async () =>
+    {
+        if (actual == null) actual = r; else cola.Enqueue(r);
+        await SonarAsync(true);
+        StateHasChanged();
+    });
+
+    private async Task DetenerAsync()
+    {
+        if (actual != null) Alarmas.Eliminar(actual.Id);
+        await SiguienteAsync();
+    }
+
+    private async Task PosponerAsync(int minutos)
+    {
+        if (actual != null) Alarmas.Posponer(actual.Id, TimeSpan.FromMinutes(minutos));
+        await SiguienteAsync();
+    }
+
+    private async Task SiguienteAsync()
+    {
+        actual = cola.Count > 0 ? cola.Dequeue() : null;
+        if (actual == null) await SonarAsync(false);
+    }
+
+    private async Task SonarAsync(bool sonar)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(sonar ? "escuela.sonarAlarma" : "escuela.detenerAlarma");
+        }
+        catch (JSException)
+        {
+            // El sonido es complementario; el aviso visual se muestra igualmente.
+        }
+    }
+
+    public void Dispose() => Alarmas.Disparado -= AlDisparar;
+}

@@ -1,0 +1,147 @@
+@* Lista rápida de citas por estado (desde las tarjetas del dashboard). *@
+@inject ICitaService Citas
+@inject AccionesCita Acciones
+@inject ISesionUsuario Sesion
+
+<div class="lista-dialog">
+    <div class="filtros-linea">
+        <div class="input-icono flex-grow-1">
+            <span class="ico">search</span>
+            <input class="form-control" placeholder="Buscar por cliente, teléfono o correo…" @bind="texto" @bind:event="oninput" />
+        </div>
+        @if (Estado != EstadosCita.Pendiente)
+        {
+            <select class="form-select w-auto" @bind="dias" @bind:after="CargarAsync">
+                <option value="7">Últimos 7 días</option>
+                <option value="30">Últimos 30 días</option>
+                <option value="90">Últimos 90 días</option>
+                <option value="365">Último año</option>
+                <option value="0">Todo el historial</option>
+            </select>
+        }
+        else
+        {
+            <div class="form-check form-switch align-self-center">
+                <input class="form-check-input" type="checkbox" id="soloVencidas" @bind="soloVencidas" />
+                <label class="form-check-label" for="soloVencidas">Solo vencidas</label>
+            </div>
+        }
+    </div>
+
+    @if (citas == null)
+    {
+        <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
+    }
+    else
+    {
+        var visibles = Filtradas().ToList();
+        <div class="resumen-linea">
+            <span><strong>@visibles.Count</strong> cita(s)</span>
+            @if (Estado == EstadosCita.Completada)
+            {
+                <span>Ingresos: <strong>@Formato.Colones(visibles.Sum(c => c.Precio))</strong></span>
+                <span>Horas: <strong>@visibles.Sum(c => c.DuracionHoras).ToString("0.#")</strong></span>
+            }
+        </div>
+        <div class="lista-citas">
+            @foreach (var c in visibles)
+            {
+                var vencida = c.Estado == EstadosCita.Pendiente && c.FinCompleto < DateTime.Now;
+                <div class="fila-cita @(vencida ? "vencida" : "")" @key="c.Id" @onclick="() => VerAsync(c)">
+                    <div class="fila-fecha">
+                        <strong>@Formato.DiaRelativo(c.Fecha)</strong>
+                        <small>@Formato.Hora(c.HoraInicio)</small>
+                    </div>
+                    <div class="flex-grow-1">
+                        <strong>@c.ClienteNombre</strong>
+                        <small class="d-block text-muted">@c.InstructorNombre · @c.Plantel · @c.TipoVehiculo</small>
+                    </div>
+                    @if (vencida)
+                    {
+                        <span class="badge cancelada" title="La hora de la cita ya pasó y sigue pendiente">Sin cerrar</span>
+                    }
+                    @if (Estado == EstadosCita.Pendiente && PuedeGestionar)
+                    {
+                        <div class="fila-acciones" @onclick:stopPropagation>
+                            <button class="btn-icono exito" title="Marcar completada" @onclick="() => CambiarAsync(c, EstadosCita.Completada)"><span class="ico">task_alt</span></button>
+                            <button class="btn-icono" title="Modificar" @onclick="() => Editar(c)"><span class="ico">edit</span></button>
+                            <button class="btn-icono peligro" title="Cancelar" @onclick="() => CambiarAsync(c, EstadosCita.Cancelada)"><span class="ico">event_busy</span></button>
+                        </div>
+                    }
+                    else
+                    {
+                        <strong class="text-nowrap">@Formato.Colones(c.Precio)</strong>
+                    }
+                </div>
+            }
+            @if (visibles.Count == 0)
+            {
+                <p class="text-center text-muted py-4">No hay citas que coincidan.</p>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Estado { get; set; } = EstadosCita.Pendiente;
+    [Parameter] public bool SoloVencidas { get; set; }
+
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    [Inject] private DialogService Dialogos { get; set; } = default!;
+
+    private List<Cita>? citas;
+    private string texto = string.Empty;
+    private int dias = 30;
+    private bool soloVencidas;
+    private bool huboCambios;
+
+    private bool PuedeGestionar => Sesion.TieneRol(Roles.Administrador, Roles.Recepcionista);
+
+    protected override async Task OnInitializedAsync()
+    {
+        soloVencidas = SoloVencidas;
+        await CargarAsync();
+    }
+
+    private async Task CargarAsync()
+    {
+        var filtro = new CitaFiltro { Estados = new[] { Estado } };
+        if (Estado != EstadosCita.Pendiente && dias > 0) filtro.Desde = DateTime.Today.AddDays(-dias);
+        if (Sesion.Actual is { Rol: Roles.Instructor, InstructorId: > 0 } u) filtro.InstructorId = u.InstructorId;
+
+        var resultado = await Citas.BuscarAsync(filtro);
+        // Pendientes: las más próximas primero. Historial: las más recientes primero.
+        citas = Estado == EstadosCita.Pendiente ? resultado.OrderBy(c => c.InicioCompleto).ToList() : resultado;
+    }
+
+    private IEnumerable<Cita> Filtradas()
+    {
+        IEnumerable<Cita> q = citas ?? new List<Cita>();
+        if (soloVencidas) q = q.Where(c => c.FinCompleto < DateTime.Now);
+        return q.Where(c => TextoBusqueda.Coincide(texto, c.ClienteNombre, c.ClienteTelefono, c.ClienteCorreo));
+    }
+
+    private async Task VerAsync(Cita c)
+    {
+        if (await Acciones.VerDetalleAsync(c.Id))
+        {
+            huboCambios = true;
+            await CargarAsync();
+        }
+    }
+
+    private async Task CambiarAsync(Cita c, string estado)
+    {
+        if (await Acciones.CambiarEstadoAsync(c, estado))
+        {
+            huboCambios = true;
+            await CargarAsync();
+        }
+    }
+
+    private void Editar(Cita c)
+    {
+        Dialogos.Close(huboCambios);
+        Navigation.NavigateTo($"/citas/{c.Id}");
+    }
+}
