@@ -1,0 +1,123 @@
+@page "/usuarios"
+@attribute [Authorize(Roles = Roles.Administrador)]
+@inject IUsuarioService ServicioUsuarios
+@inject ISesionUsuario Sesion
+@inject AccionesCita Acciones
+@inject DialogService Dialogos
+
+<div class="container-fluid p-md-4">
+    <div class="pagina-encabezado">
+        <div>
+            <h1>Usuarios y Perfiles</h1>
+            <p class="subtitle">Cuentas de acceso, roles y credenciales del personal.</p>
+        </div>
+        <button class="btn btn-primary" @onclick="() => AbrirFormularioAsync(null)"><span class="ico">person_add</span> Nuevo usuario</button>
+    </div>
+
+    <div class="roles-ayuda">
+        @foreach (var rol in Roles.Todos)
+        {
+            <div><strong>@rol</strong><small>@UsuarioFormDialog.DescripcionRol(rol)</small></div>
+        }
+    </div>
+
+    <div class="table-responsive">
+        <table class="db-table">
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Correo</th>
+                    <th>Rol</th>
+                    <th>Estado</th>
+                    <th>Último acceso</th>
+                    <th class="text-end">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var u in usuarios)
+                {
+                    <tr @key="u.Id">
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="avatar">@InstructoresActivosDialog.Iniciales(u.NombreCompleto)</span>
+                                <div><strong>@u.NombreCompleto</strong><br /><small class="text-muted">@@@u.NombreUsuario</small></div>
+                            </div>
+                        </td>
+                        <td>@u.Correo</td>
+                        <td><span class="chip pequeno rol-@u.Rol.ToLowerInvariant()">@u.Rol</span></td>
+                        <td>
+                            @if (u.BloqueadoPorSeguridad)
+                            {
+                                <span class="badge cancelada"><span class="ico pequeno">lock</span> Bloqueado</span>
+                            }
+                            else if (!u.Activo)
+                            {
+                                <span class="badge neutro">Inactivo</span>
+                            }
+                            else
+                            {
+                                <span class="badge completada">Activo</span>
+                            }
+                        </td>
+                        <td>@(u.UltimoAcceso?.ToString("dd/MM/yyyy HH:mm") ?? "Nunca")</td>
+                        <td class="text-end text-nowrap">
+                            @if (u.BloqueadoPorSeguridad)
+                            {
+                                <button class="btn-icono exito" title="Desbloquear" @onclick="() => DesbloquearAsync(u)"><span class="ico">lock_open</span></button>
+                            }
+                            <button class="btn-icono" title="Editar" @onclick="() => AbrirFormularioAsync(u)"><span class="ico">edit</span></button>
+                            <button class="btn-icono" title="Restablecer contraseña" @onclick="() => RestablecerAsync(u)"><span class="ico">key</span></button>
+                            @if (u.Id != Sesion.Actual?.Id)
+                            {
+                                <button class="btn-icono peligro" title="Eliminar" @onclick="() => EliminarAsync(u)"><span class="ico">delete</span></button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private List<Usuario> usuarios = new();
+
+    protected override async Task OnInitializedAsync() => await CargarAsync();
+
+    private async Task CargarAsync() => usuarios = await ServicioUsuarios.ListarAsync();
+
+    private async Task AbrirFormularioAsync(Usuario? u)
+    {
+        var r = await Dialogos.OpenAsync<UsuarioFormDialog>(u == null ? "Nuevo usuario" : $"Editar: {u.NombreCompleto}",
+            new Dictionary<string, object?> { [nameof(UsuarioFormDialog.Usuario)] = u }, new DialogOptions { Width = "620px" });
+        if (r is true)
+        {
+            Acciones.Notificar(true, "Usuario guardado", "Los cambios se aplicaron correctamente.");
+            await CargarAsync();
+        }
+    }
+
+    private async Task RestablecerAsync(Usuario u)
+    {
+        if (await Dialogos.OpenAsync<RestablecerPasswordDialog>("Restablecer contraseña",
+                new Dictionary<string, object?> { [nameof(RestablecerPasswordDialog.Usuario)] = u }, new DialogOptions { Width = "520px" }) is true)
+            await CargarAsync();
+    }
+
+    private async Task DesbloquearAsync(Usuario u)
+    {
+        var r = await ServicioUsuarios.DesbloquearAsync(u.Id);
+        Acciones.Notificar(r.Exito, "Cuenta", r.Mensaje);
+        await CargarAsync();
+    }
+
+    private async Task EliminarAsync(Usuario u)
+    {
+        var confirmar = await Dialogos.Confirm($"¿Eliminar la cuenta de {u.NombreCompleto}? Considere desactivarla para conservar el historial.",
+            "Eliminar usuario", new ConfirmOptions { OkButtonText = "Eliminar", CancelButtonText = "Cancelar" });
+        if (confirmar != true) return;
+        var r = await ServicioUsuarios.EliminarAsync(u.Id, Sesion.Actual!.Id);
+        Acciones.Notificar(r.Exito, "Usuarios", r.Mensaje);
+        await CargarAsync();
+    }
+}

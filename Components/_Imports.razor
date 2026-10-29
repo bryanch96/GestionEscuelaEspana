@@ -1,5 +1,7 @@
-﻿@using System.Net.Http
-@using System.Net.Http.Json
+@using System.Net.Http
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.AspNetCore.Components.Web
@@ -7,7 +9,24 @@
 @using Microsoft.JSInterop
 @using GestionEscuelaEspana
 @using GestionEscuelaEspana.Components
+@using GestionEscuelaEspana.Components.Layout
+@using GestionEscuelaEspana.Components.Shared
+@using GestionEscuelaEspana.Models
+@using GestionEscuelaEspana.Data.Repositorios
+@using GestionEscuelaEspana.Services.Common
+@using GestionEscuelaEspana.Services.Citas
+@using GestionEscuelaEspana.Services.Comunicacion
+@using GestionEscuelaEspana.Services.Configuracion
+@using GestionEscuelaEspana.Services.Dashboard
+@using GestionEscuelaEspana.Services.Email
+@using GestionEscuelaEspana.Services.Estudiantes
+@using GestionEscuelaEspana.Services.Herramientas
+@using GestionEscuelaEspana.Services.Instructores
+@using GestionEscuelaEspana.Services.Plataforma
+@using GestionEscuelaEspana.Services.Security
+@using GestionEscuelaEspana.Services.Seguimiento
 @using Radzen
 @using Radzen.Blazor
-@using GestionEscuelaEspana.Models
-@using GestionEscuelaEspana.Data
+
+@* Seguro por defecto: toda página exige sesión iniciada salvo las marcadas con [AllowAnonymous]. *@
+@attribute [Authorize]

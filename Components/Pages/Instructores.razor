@@ -1,120 +1,201 @@
-﻿@page "/instructores"
-@using GestionEscuelaEspana.Models
-@using GestionEscuelaEspana.Data
-@inject DatabaseService DB
+@page "/instructores"
+@attribute [Authorize(Roles = Roles.Gestion)]
+@inject IInstructorService ServicioInstructores
+@inject ICanalesComunicacion Canales
+@inject AccionesCita Acciones
+@inject DialogService Dialogos
 
-<div class="container-fluid p-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>Gestión de Instructores</h2>
+<div class="container-fluid p-md-4">
+    <div class="pagina-encabezado">
+        <div>
+            <h1>Gestión de Instructores</h1>
+            <p class="subtitle">Control de personal, disponibilidad y desempeño.</p>
+        </div>
+        <button class="btn btn-primary" @onclick="() => AbrirFormularioAsync(null)"><span class="ico">person_add</span> Nuevo instructor</button>
     </div>
 
-    <div class="card p-3 mb-4 style-card">
-        <h5>@((nuevoInstructor.Id == 0) ? "Registrar Nuevo Instructor" : "Editar Instructor")</h5>
-        <EditForm Model="nuevoInstructor" OnValidSubmit="GuardarInstructor">
-            <div class="row">
-                <div class="col-md-4 mb-2">
-                    <label>Nombre Completo:</label>
-                    <input type="text" class="form-control" @bind="nuevoInstructor.Nombre" required />
-                </div>
-                <div class="col-md-4 mb-2">
-                    <label>Teléfono:</label>
-                    <input type="text" class="form-control" @bind="nuevoInstructor.Telefono" required />
-                </div>
-                <div class="col-md-4 mb-2">
-                    <label>Licencia Autorizada:</label>
-                    <input type="text" class="form-control" @bind="nuevoInstructor.Licencia" placeholder="Ej: B1, A3" required />
-                </div>
+    @if (lista == null)
+    {
+        <div class="text-center p-5"><div class="spinner-border text-primary"></div></div>
+    }
+    else
+    {
+        <div class="kpi-grid">
+            <div class="kpi"><small><span class="ico">how_to_reg</span> Activos</small><strong>@lista.Count(i => i.EstaActivo)</strong><span class="kpi-pie">de @lista.Count registrados</span></div>
+            <div class="kpi"><small><span class="ico">beach_access</span> Ausentes</small><strong>@lista.Count(i => i.Estado is EstadosInstructor.Vacaciones or EstadosInstructor.Incapacitado)</strong><span class="kpi-pie">vacaciones o incapacidad</span></div>
+            <div class="kpi"><small><span class="ico">today</span> Citas del equipo hoy</small><strong>@rendimientos.Values.Sum(r => r.CitasHoy)</strong><span class="kpi-pie">capacidad @lista.Where(i => i.EstaActivo && i.TrabajaEl(DateTime.Today.DayOfWeek)).Sum(i => i.MaxCitasPorDia)</span></div>
+            <div class="kpi"><small><span class="ico">schedule</span> Horas impartidas (mes)</small><strong>@rendimientos.Values.Sum(r => r.HorasImpartidas).ToString("0.#")</strong><span class="kpi-pie">citas completadas</span></div>
+        </div>
+
+        @if (alertasLicencia.Count > 0)
+        {
+            <div class="alert-banner">
+                <span class="ico">warning</span>
+                <div><strong>Licencias por vencer (30 días):</strong> @string.Join(", ", alertasLicencia.Select(i => $"{i.Nombre} ({Formato.Fecha(i.VencimientoLicencia!.Value)})"))</div>
             </div>
-            <div class="mt-3 d-flex gap-2">
-                <button type="submit" class="btn btn-primary" style="background-color: #0284c7; border: none;">Guardar</button>
-                @if (nuevoInstructor.Id != 0)
-                {
-                    <button type="button" class="btn btn-secondary" @onclick="LimpiarFormulario">Cancelar</button>
-                }
-            </div>
-        </EditForm>
-    </div>
+        }
 
-    <div class="table-responsive">
-        <table class="db-table">
-            <thead>
-                <tr>
-                    <th>Nombre</th>
-                    <th>Teléfono</th>
-                    <th>Licencia</th>
-                    <th>Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var inst in listaInstructores)
-                {
-                    <tr>
-                        <td><strong>@inst.Nombre</strong></td>
-                        <td>@inst.Telefono</td>
-                        <td><span class="badge" style="background-color: #e2e8f0; color: #1e293b;">@inst.Licencia</span></td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-primary me-2" @onclick="() => Editar(inst)">Editar</button>
-                            <button class="btn btn-sm btn-outline-danger" @onclick="() => Eliminar(inst.Id)">Borrar</button>
-                        </td>
-                    </tr>
-                }
-                @if (!listaInstructores.Any())
-                {
-                    <tr><td colspan="4" style="text-align:center; color:#888;">No hay instructores registrados.</td></tr>
-                }
-            </tbody>
-        </table>
-    </div>
+        <div class="filtros-linea">
+            <div class="input-icono flex-grow-1">
+                <span class="ico">search</span>
+                <input class="form-control" placeholder="Buscar por nombre, teléfono, cédula o licencia…" @bind="texto" @bind:event="oninput" />
+            </div>
+            <select class="form-select w-auto" @bind="filtroEstado">
+                <option value="">Todos los estados</option>
+                @foreach (var e in EstadosInstructor.Todos) { <option value="@e">@e</option> }
+            </select>
+        </div>
+
+        <div class="tarjetas-instructores">
+            @foreach (var i in Filtrados())
+            {
+                var r = rendimientos.GetValueOrDefault(i.Id) ?? RendimientoInstructor.Vacio(i.Id);
+                var carga = i.MaxCitasPorDia == 0 ? 0 : Math.Min(100, 100 * r.CitasHoy / i.MaxCitasPorDia);
+                var trabajaHoy = i.TrabajaEl(DateTime.Today.DayOfWeek);
+                <div class="tarjeta-instructor @(i.EstaActivo ? "" : "inactivo")" @key="i.Id">
+                    <div class="ti-encabezado">
+                        <span class="avatar">@InstructoresActivosDialog.Iniciales(i.Nombre)</span>
+                        <div class="flex-grow-1">
+                            <strong>@i.Nombre</strong>
+                            <small class="d-block text-muted">@i.Telefono @(string.IsNullOrWhiteSpace(i.Correo) ? "" : " · " + i.Correo)</small>
+                        </div>
+                        <select class="form-select form-select-sm estado-select @i.Estado.ToLowerInvariant()" value="@i.Estado"
+                                @onchange="e => CambiarEstadoAsync(i, e.Value?.ToString())">
+                            @foreach (var e in EstadosInstructor.Todos) { <option value="@e">@e</option> }
+                        </select>
+                    </div>
+
+                    <div class="ti-chips">
+                        @foreach (var cat in i.Categorias) { <span class="chip pequeno">@cat</span> }
+                    </div>
+
+                    <div class="ti-horario">
+                        <span class="ico">schedule</span> @Formato.Hora(i.HoraEntrada) – @Formato.Hora(i.HoraSalida)
+                        <span class="dias">
+                            @foreach (var d in new[] { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday })
+                            {
+                                <span class="dia @(i.TrabajaEl(d) ? "si" : "")" title="@Formato.NombreDia(d)">@Formato.NombreDia(d)[0]</span>
+                            }
+                        </span>
+                    </div>
+
+                    <div class="carga">
+                        <div class="progreso"><span class="@(carga >= 100 ? "lleno" : "")" style="width:@carga%"></span></div>
+                        <small>@(trabajaHoy ? $"Hoy: {r.CitasHoy} / {i.MaxCitasPorDia} citas" : "No labora hoy")</small>
+                    </div>
+
+                    <div class="ti-metricas">
+                        <div><strong>@r.Completadas</strong><small>completadas (mes)</small></div>
+                        <div><strong>@r.TasaCumplimiento.ToString("0.#")%</strong><small>cumplimiento</small></div>
+                        <div><strong>@r.HorasImpartidas.ToString("0.#") h</strong><small>impartidas</small></div>
+                    </div>
+
+                    @if (r.ProximaCita is { } proxima)
+                    {
+                        <small class="ti-proxima"><span class="ico">event</span> Próxima: @Formato.DiaRelativo(proxima.Fecha) @Formato.Hora(proxima.HoraInicio) · @proxima.ClienteNombre</small>
+                    }
+
+                    <div class="ti-acciones">
+                        <button class="btn btn-sm btn-outline-primary" @onclick="() => VerPerfilAsync(i)"><span class="ico">visibility</span> Perfil</button>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => AbrirFormularioAsync(i)"><span class="ico">edit</span> Editar</button>
+                        <button class="btn-icono exito" title="WhatsApp" @onclick="() => WhatsAppAsync(i)"><span class="ico">chat</span></button>
+                        <button class="btn-icono peligro" title="Eliminar" @onclick="() => EliminarAsync(i)"><span class="ico">delete</span></button>
+                    </div>
+                </div>
+            }
+        </div>
+        @if (!Filtrados().Any())
+        {
+            <div class="estado-vacio">
+                <span class="ico grande">group_off</span>
+                <p>@(lista.Count == 0 ? "Aún no hay instructores registrados." : "Ningún instructor coincide con la búsqueda.")</p>
+            </div>
+        }
+    }
 </div>
 
 @code {
-    private Instructor nuevoInstructor = new();
-    private List<Instructor> listaInstructores = new();
+    [SupplyParameterFromQuery(Name = "editar")] public int? EditarId { get; set; }
 
-    protected override void OnInitialized()
+    private List<Instructor>? lista;
+    private Dictionary<int, RendimientoInstructor> rendimientos = new();
+    private List<Instructor> alertasLicencia = new();
+    private string texto = string.Empty;
+    private string filtroEstado = string.Empty;
+
+    protected override async Task OnInitializedAsync() => await CargarAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        RefrescarLista();
-    }
-
-    private void RefrescarLista()
-    {
-        listaInstructores = DB.GetInstructores();
-    }
-
-    private void GuardarInstructor()
-    {
-        DB.GuardarInstructor(nuevoInstructor);
-        LimpiarFormulario();
-        RefrescarLista();
-    }
-
-    private void Editar(Instructor inst)
-    {
-        nuevoInstructor = new Instructor 
-        { 
-            Id = inst.Id, 
-            Nombre = inst.Nombre, 
-            Telefono = inst.Telefono, 
-            Licencia = inst.Licencia 
-        };
-    }
-
-    private void Eliminar(int id)
-    {
-        DB.EliminarInstructor(id);
-
-        // Si estábamos editando el instructor que se eliminó, limpiamos el formulario
-        if (nuevoInstructor.Id == id)
+        // Permite abrir directamente la edición desde el perfil del dashboard (/instructores?editar=5).
+        // No se vuelve a navegar para limpiar la URL: Radzen cierra los diálogos al cambiar de ubicación.
+        if (EditarId is { } id && lista != null)
         {
-            LimpiarFormulario();
+            EditarId = null;
+            var instructor = lista.FirstOrDefault(i => i.Id == id);
+            if (instructor != null) await AbrirFormularioAsync(instructor);
         }
-
-        RefrescarLista();
     }
 
-    private void LimpiarFormulario()
+    private async Task CargarAsync()
     {
-        nuevoInstructor = new Instructor();
- 
+        var hoy = DateTime.Today;
+        rendimientos = await ServicioInstructores.ObtenerRendimientosAsync(new DateTime(hoy.Year, hoy.Month, 1), new DateTime(hoy.Year, hoy.Month, 1).AddMonths(1).AddDays(-1));
+        lista = await ServicioInstructores.ListarAsync();
+        alertasLicencia = lista.Where(i => i.EstaActivo && i.VencimientoLicencia is { } v && v.Date <= hoy.AddDays(30)).ToList();
+    }
+
+    private IEnumerable<Instructor> Filtrados()
+    {
+        IEnumerable<Instructor> q = lista ?? new List<Instructor>();
+        if (!string.IsNullOrEmpty(filtroEstado)) q = q.Where(i => i.Estado == filtroEstado);
+        q = q.Where(i => TextoBusqueda.Coincide(texto, i.Nombre, i.Telefono, i.Identificacion, i.Correo, i.Licencia));
+        // Activos primero y luego por nombre.
+        return q.OrderBy(i => i.EstaActivo ? 0 : 1).ThenBy(i => i.Nombre);
+    }
+
+    private async Task AbrirFormularioAsync(Instructor? instructor)
+    {
+        var resultado = await Dialogos.OpenAsync<InstructorFormDialog>(instructor == null ? "Registrar instructor" : $"Editar: {instructor.Nombre}",
+            new Dictionary<string, object?> { [nameof(InstructorFormDialog.Instructor)] = instructor },
+            new DialogOptions { Width = "760px" });
+        if (resultado is Instructor guardado)
+        {
+            Acciones.Notificar(true, "Instructor guardado", $"Los datos de {guardado.Nombre} se guardaron correctamente.");
+            await CargarAsync();
+        }
+    }
+
+    private async Task VerPerfilAsync(Instructor i)
+    {
+        await Dialogos.OpenAsync<InstructorPerfil>(i.Nombre,
+            new Dictionary<string, object?> { [nameof(InstructorPerfil.InstructorId)] = i.Id },
+            new DialogOptions { Width = "720px", CloseDialogOnOverlayClick = true });
+        await CargarAsync();
+    }
+
+    private async Task CambiarEstadoAsync(Instructor i, string? estado)
+    {
+        if (string.IsNullOrEmpty(estado) || estado == i.Estado) return;
+        var resultado = await ServicioInstructores.CambiarEstadoAsync(i.Id, estado);
+        Acciones.Notificar(resultado.Exito, "Estado del instructor", resultado.Mensaje);
+        await CargarAsync();
+    }
+
+    private async Task WhatsAppAsync(Instructor i)
+    {
+        var r = await Canales.AbrirWhatsAppAsync(i.Telefono, $"Hola {i.Nombre}, ");
+        if (!r.Exito) Acciones.Notificar(false, "WhatsApp", r.Mensaje);
+    }
+
+    private async Task EliminarAsync(Instructor i)
+    {
+        var confirmar = await Dialogos.Confirm($"¿Eliminar a {i.Nombre}? Si tiene citas registradas se le sugerirá desactivarlo.",
+            "Eliminar instructor", new ConfirmOptions { OkButtonText = "Eliminar", CancelButtonText = "Cancelar" });
+        if (confirmar != true) return;
+
+        var resultado = await ServicioInstructores.EliminarAsync(i.Id);
+        Acciones.Notificar(resultado.Exito, resultado.Exito ? "Instructor eliminado" : "No se eliminó", resultado.Mensaje);
+        if (resultado.Exito) await CargarAsync();
     }
 }

@@ -1,6 +1,36 @@
-﻿<Router AppAssembly="@typeof(MauiProgram).Assembly">
-    <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
-    </Found>
-</Router>
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(Routes).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated != true)
+                    {
+                        <RedirectToLogin />
+                    }
+                    else
+                    {
+                        <div class="estado-vacio">
+                            <span class="ico grande">lock</span>
+                            <h2>Acceso restringido</h2>
+                            <p>Su perfil no tiene permisos para ver esta sección.</p>
+                            <a class="btn btn-primary" href="">Volver al inicio</a>
+                        </div>
+                    }
+                </NotAuthorized>
+                <Authorizing>
+                    <div class="estado-vacio"><div class="spinner-border text-primary"></div></div>
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <LayoutView Layout="@typeof(MainLayout)">
+                <div class="estado-vacio">
+                    <span class="ico grande">explore_off</span>
+                    <h2>Página no encontrada</h2>
+                    <a class="btn btn-primary" href="">Ir al inicio</a>
+                </div>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

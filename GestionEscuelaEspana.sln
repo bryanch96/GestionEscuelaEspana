@@ -5,6 +5,10 @@ VisualStudioVersion = 17.14.36915.13 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GestionEscuelaEspana", "GestionEscuelaEspana.csproj", "{2CA679E1-469F-4614-9C70-5E4711048D60}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{A2F16FAA-8B59-4AFC-B8E0-12C70686806B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GestionEscuelaEspana.Tests", "tests\GestionEscuelaEspana.Tests\GestionEscuelaEspana.Tests.csproj", "{B737934F-B413-486E-8C1B-C250C2EA4355}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -17,11 +21,18 @@ Global
 		{2CA679E1-469F-4614-9C70-5E4711048D60}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2CA679E1-469F-4614-9C70-5E4711048D60}.Release|Any CPU.Build.0 = Release|Any CPU
 		{2CA679E1-469F-4614-9C70-5E4711048D60}.Release|Any CPU.Deploy.0 = Release|Any CPU
+		{B737934F-B413-486E-8C1B-C250C2EA4355}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B737934F-B413-486E-8C1B-C250C2EA4355}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B737934F-B413-486E-8C1B-C250C2EA4355}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B737934F-B413-486E-8C1B-C250C2EA4355}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {23C6553D-B3E1-4BB6-A400-BFA2B7DD7BB3}
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{B737934F-B413-486E-8C1B-C250C2EA4355} = {A2F16FAA-8B59-4AFC-B8E0-12C70686806B}
 	EndGlobalSection
 EndGlobal

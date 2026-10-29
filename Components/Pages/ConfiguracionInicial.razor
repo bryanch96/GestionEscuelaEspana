@@ -1,0 +1,93 @@
+@page "/configuracion-inicial"
+@layout LoginLayout
+@attribute [AllowAnonymous]
+@inject IUsuarioService Usuarios
+@inject IConfiguracionService Configuracion
+@inject IAuthService Auth
+@inject NavigationManager Navigation
+
+<div class="acceso-card ancho">
+    <h1>Bienvenido</h1>
+    <p class="text-muted">Es la primera vez que se usa la aplicación en este dispositivo. Cree la cuenta del <strong>administrador</strong> principal.</p>
+
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger py-2">@error</div>
+    }
+
+    <EditForm Model="admin" OnSubmit="CrearAsync">
+        <div class="row g-3">
+            <div class="col-12">
+                <label class="form-label">Nombre de la escuela</label>
+                <input class="form-control" @bind="nombreEscuela" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Nombre completo</label>
+                <input class="form-control" @bind="admin.NombreCompleto" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Usuario</label>
+                <input class="form-control" @bind="admin.NombreUsuario" autocomplete="username" />
+            </div>
+            <div class="col-12">
+                <label class="form-label">Correo electrónico <small class="text-muted">(para recuperar la contraseña)</small></label>
+                <input class="form-control" type="email" @bind="admin.Correo" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Contraseña</label>
+                <input class="form-control" type="password" @bind="password" @bind:event="oninput" autocomplete="new-password" />
+                <IndicadorPassword Password="@password" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Confirmar contraseña</label>
+                <input class="form-control" type="password" @bind="confirmacion" autocomplete="new-password" />
+            </div>
+        </div>
+        <button class="btn btn-primary w-100 btn-lg mt-4" type="submit" disabled="@procesando">Crear administrador e ingresar</button>
+    </EditForm>
+</div>
+
+@code {
+    private readonly Usuario admin = new();
+    private string nombreEscuela = "Escuela de Manejo España";
+    private string password = string.Empty;
+    private string confirmacion = string.Empty;
+    private string? error;
+    private bool procesando;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (await Usuarios.ExistenUsuariosAsync())
+            Navigation.NavigateTo("/login", replace: true);
+    }
+
+    private async Task CrearAsync()
+    {
+        error = null;
+        if (password != confirmacion)
+        {
+            error = "Las contraseñas no coinciden.";
+            return;
+        }
+
+        procesando = true;
+        try
+        {
+            var resultado = await Usuarios.CrearAdministradorInicialAsync(admin, password);
+            if (!resultado.Exito)
+            {
+                error = resultado.Mensaje;
+                return;
+            }
+
+            var config = await Configuracion.ObtenerAsync();
+            config.NombreEscuela = string.IsNullOrWhiteSpace(nombreEscuela) ? config.NombreEscuela : nombreEscuela.Trim();
+            config.RemitenteNombre = config.NombreEscuela;
+            await Configuracion.GuardarAsync(config);
+
+            await Auth.IniciarSesionAsync(admin.NombreUsuario, password);
+            Navigation.NavigateTo("/", replace: true);
+        }
+        finally { procesando = false; }
+    }
+}

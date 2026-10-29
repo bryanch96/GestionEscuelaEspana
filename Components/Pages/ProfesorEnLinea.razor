@@ -1,0 +1,408 @@
+@page "/profesor-en-linea"
+@attribute [Authorize(Roles = Roles.Docencia)]
+@inject IEstudianteService Estudiantes
+@inject ISeguimientoService Seguimiento
+@inject ICanalesComunicacion Canales
+@inject IMediaService Media
+@inject IEmailService Correo
+@inject ICitaService ServicioCitas
+@inject AccionesCita Acciones
+@inject DialogService Dialogos
+
+<div class="container-fluid p-md-4">
+    <div class="pagina-encabezado">
+        <div>
+            <h1>Profesor en Línea</h1>
+            <p class="subtitle">Seguimiento pedagógico y comunicación directa con cada estudiante.</p>
+        </div>
+        <button class="btn btn-outline-primary" @onclick="() => EditarEstudianteAsync(null)"><span class="ico">person_add</span> Nuevo estudiante</button>
+    </div>
+
+    <div class="pel-layout">
+        @* --- Columna izquierda: búsqueda y selección de estudiantes --- *@
+        <aside class="panel pel-lista @(seleccionado != null ? "oculto-movil" : "")">
+            <div class="input-icono mb-2">
+                <span class="ico">search</span>
+                <input class="form-control" placeholder="Filtrar por nombre, teléfono o correo…" @bind="filtro" @bind:event="oninput" />
+            </div>
+            <small class="text-muted d-block mb-2">@Filtrados().Count() estudiante(s)</small>
+            <div class="pel-estudiantes">
+                @foreach (var e in Filtrados())
+                {
+                    <button class="pel-estudiante @(seleccionado?.Id == e.Id ? "activo" : "")" @key="e.Id" @onclick="() => SeleccionarAsync(e)">
+                        <span class="avatar">@InstructoresActivosDialog.Iniciales(e.NombreCompleto)</span>
+                        <span class="flex-grow-1 text-start">
+                            <strong>@e.NombreCompleto</strong>
+                            <small class="d-block text-muted">@(string.IsNullOrWhiteSpace(e.Telefono) ? "Sin teléfono" : e.Telefono)</small>
+                        </span>
+                        @if (string.IsNullOrWhiteSpace(e.Correo))
+                        {
+                            <span class="ico text-warning" title="Sin correo registrado">unsubscribe</span>
+                        }
+                    </button>
+                }
+                @if (!Filtrados().Any())
+                {
+                    <p class="text-center text-muted py-3">No se encontraron estudiantes.</p>
+                }
+            </div>
+        </aside>
+
+        @* --- Columna derecha: seguimiento del estudiante seleccionado --- *@
+        <section class="pel-detalle">
+            @if (seleccionado == null)
+            {
+                <div class="panel estado-vacio">
+                    <span class="ico grande">school</span>
+                    <h2>Seleccione un estudiante</h2>
+                    <p>Búsquelo por nombre o elíjalo directamente de la lista para registrar notas, adjuntar evidencia y comunicarse con él.</p>
+                </div>
+            }
+            else
+            {
+                <div class="panel pel-ficha">
+                    <button class="btn btn-sm btn-link d-md-none p-0 mb-2" @onclick="() => seleccionado = null"><span class="ico">arrow_back</span> Lista</button>
+                    <div class="d-flex align-items-center gap-3 flex-wrap">
+                        <span class="avatar grande">@InstructoresActivosDialog.Iniciales(seleccionado.NombreCompleto)</span>
+                        <div class="flex-grow-1">
+                            <h3 class="m-0">@seleccionado.NombreCompleto</h3>
+                            <small class="text-muted">
+                                <span class="ico">call</span> @(string.IsNullOrWhiteSpace(seleccionado.Telefono) ? "—" : seleccionado.Telefono)
+                                <span class="ms-2 ico">mail</span> @(string.IsNullOrWhiteSpace(seleccionado.Correo) ? "Sin correo" : seleccionado.Correo)
+                            </small>
+                            <div class="mt-1 small">
+                                <span class="chip pequeno">@citasEstudiante.Count(c => c.Estado == EstadosCita.Completada) prácticas completadas</span>
+                                @if (citasEstudiante.FirstOrDefault(c => c.Estado == EstadosCita.Pendiente && c.InicioCompleto >= DateTime.Now) is { } prox)
+                                {
+                                    <span class="chip pequeno">Próxima: @Formato.DiaRelativo(prox.Fecha) @Formato.Hora(prox.HoraInicio)</span>
+                                }
+                            </div>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => EditarEstudianteAsync(seleccionado)"><span class="ico">edit</span> Editar</button>
+                    </div>
+
+                    @* Centro de comunicación *@
+                    <div class="centro-comunicacion">
+                        <span class="titulo"><span class="ico">forum</span> Chat con el estudiante</span>
+                        <button class="btn btn-primary" @onclick="CorreoDirectoAsync" disabled="@string.IsNullOrWhiteSpace(seleccionado.Correo)">
+                            <span class="ico">mail</span> Correo electrónico
+                        </button>
+                        <button class="btn btn-whatsapp" @onclick="WhatsAppAsync" disabled="@string.IsNullOrWhiteSpace(seleccionado.Telefono)">
+                            <span class="ico">chat</span> WhatsApp
+                        </button>
+                    </div>
+                </div>
+
+                @* Nueva nota *@
+                <div class="panel">
+                    <h3><span class="ico">edit_note</span> Nuevo seguimiento</h3>
+                    <div class="row g-2">
+                        <div class="col-md-8">
+                            <input class="form-control" placeholder="Título (ej.: Estacionamiento en paralelo)" maxlength="120" @bind="nueva.Titulo" />
+                        </div>
+                        <div class="col-md-4 d-flex align-items-center gap-1 calificacion" title="Desempeño en la sesión">
+                            @for (var n = 1; n <= 5; n++)
+                            {
+                                var valor = n;
+                                <button type="button" class="estrella @(nueva.Calificacion >= valor ? "llena" : "")"
+                                        @onclick="() => nueva.Calificacion = nueva.Calificacion == valor ? 0 : valor">★</button>
+                            }
+                            <small class="text-muted ms-1">@(nueva.Calificacion == 0 ? "Sin calificar" : $"{nueva.Calificacion}/5")</small>
+                        </div>
+                        <div class="col-12">
+                            <textarea class="form-control" rows="4" maxlength="4000" placeholder="Notas sobre el desempeño del alumno: fortalezas, aspectos a mejorar, recomendaciones…" @bind="nueva.Texto" @bind:event="oninput"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="adjuntar">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="SeleccionarArchivosAsync"><span class="ico">photo_library</span> Fotos o videos</button>
+                        @if (Media.CamaraDisponible)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="TomarFotoAsync"><span class="ico">photo_camera</span> Tomar foto</button>
+                            <button class="btn btn-sm btn-outline-secondary" @onclick="GrabarVideoAsync"><span class="ico">videocam</span> Grabar video</button>
+                        }
+                        <small class="text-muted ms-auto">Máx. @(Correo.TamanoMaximoAdjuntosBytes / (1024 * 1024)) MB por envío</small>
+                    </div>
+
+                    @if (pendientes.Count > 0)
+                    {
+                        <div class="galeria">
+                            @foreach (var p in pendientes)
+                            {
+                                <div class="miniatura" @key="p.Archivo.RutaTemporal">
+                                    @if (p.Miniatura != null)
+                                    {
+                                        <img src="@p.Miniatura" alt="@p.Archivo.NombreOriginal" />
+                                    }
+                                    else
+                                    {
+                                        <span class="ico grande">@(p.Archivo.ContentType.StartsWith("video") ? "movie" : "image")</span>
+                                    }
+                                    <small title="@p.Archivo.NombreOriginal">@Formato.TamanoArchivo(p.Archivo.TamanoBytes)</small>
+                                    <button class="quitar" title="Quitar" @onclick="() => pendientes.Remove(p)"><span class="ico">close</span></button>
+                                </div>
+                            }
+                        </div>
+                        @if (pendientes.Sum(p => p.Archivo.TamanoBytes) > Correo.TamanoMaximoAdjuntosBytes)
+                        {
+                            <small class="text-danger">Los adjuntos superan el máximo para enviar por correo; se guardarán pero no podrán enviarse juntos.</small>
+                        }
+                    }
+
+                    <div class="d-flex gap-2 justify-content-end mt-3 flex-wrap">
+                        <button class="btn btn-outline-primary" disabled="@guardando" @onclick="() => GuardarNotaAsync(enviar: false)"><span class="ico">save</span> Guardar nota</button>
+                        <button class="btn btn-success" disabled="@(guardando || string.IsNullOrWhiteSpace(seleccionado.Correo))" @onclick="() => GuardarNotaAsync(enviar: true)">
+                            @if (guardando) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                            <span class="ico">send</span> Enviar
+                        </button>
+                    </div>
+                </div>
+
+                @* Historial de seguimiento *@
+                <div class="panel">
+                    <h3><span class="ico">history_edu</span> Historial de seguimiento (@notas.Count)</h3>
+                    @if (notas.Count == 0)
+                    {
+                        <p class="text-muted">Aún no hay notas para este estudiante.</p>
+                    }
+                    @foreach (var n in notas)
+                    {
+                        <article class="nota" @key="n.Id">
+                            <header>
+                                <div>
+                                    <strong>@(string.IsNullOrWhiteSpace(n.Titulo) ? "Nota de seguimiento" : n.Titulo)</strong>
+                                    @if (n.Calificacion > 0)
+                                    {
+                                        <span class="estrellas">@(new string('★', n.Calificacion))@(new string('☆', 5 - n.Calificacion))</span>
+                                    }
+                                    <small class="d-block text-muted">@n.Fecha.ToString("dd/MM/yyyy h:mm tt", Formato.Cultura) · @n.AutorNombre</small>
+                                </div>
+                                @if (n.Enviada)
+                                {
+                                    <span class="badge completada" title="@n.FechaEnvio?.ToString("dd/MM/yyyy HH:mm")"><span class="ico pequeno">mark_email_read</span> Enviada</span>
+                                }
+                                else
+                                {
+                                    <span class="badge neutro">Borrador</span>
+                                }
+                            </header>
+                            @if (!string.IsNullOrWhiteSpace(n.Texto))
+                            {
+                                <p class="nota-texto">@n.Texto</p>
+                            }
+                            @if (n.Adjuntos.Count > 0)
+                            {
+                                <div class="galeria">
+                                    @foreach (var a in n.Adjuntos)
+                                    {
+                                        <div class="miniatura" @key="a.Id">
+                                            @if (miniaturas.TryGetValue(a.Id, out var src) && src != null)
+                                            {
+                                                <img src="@src" alt="@a.NombreArchivo" />
+                                            }
+                                            else
+                                            {
+                                                <span class="ico grande">@(a.EsVideo ? "movie" : "image")</span>
+                                            }
+                                            <small title="@a.NombreArchivo">@Formato.TamanoArchivo(a.TamanoBytes)</small>
+                                            <button class="quitar" title="Eliminar archivo" @onclick="() => EliminarAdjuntoAsync(a)"><span class="ico">delete</span></button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            <footer>
+                                <button class="btn btn-sm btn-outline-success" disabled="@string.IsNullOrWhiteSpace(seleccionado.Correo)" @onclick="() => EnviarConDobleConfirmacionAsync(n)">
+                                    <span class="ico">send</span> @(n.Enviada ? "Reenviar" : "Enviar")
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => EliminarNotaAsync(n)"><span class="ico">delete</span></button>
+                            </footer>
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+    </div>
+</div>
+
+@code {
+    private sealed record AdjuntoPendiente(ArchivoSeleccionado Archivo, string? Miniatura);
+
+    private List<Estudiante> estudiantes = new();
+    private Estudiante? seleccionado;
+    private List<NotaSeguimiento> notas = new();
+    private List<Cita> citasEstudiante = new();
+    private Dictionary<int, string?> miniaturas = new();
+    private NotaSeguimiento nueva = new();
+    private List<AdjuntoPendiente> pendientes = new();
+    private string filtro = string.Empty;
+    private bool guardando;
+
+    protected override async Task OnInitializedAsync() => estudiantes = await Estudiantes.BuscarAsync();
+
+    private IEnumerable<Estudiante> Filtrados() =>
+        estudiantes.Where(e => TextoBusqueda.Coincide(filtro, e.NombreCompleto, e.Telefono, e.Correo));
+
+    private async Task SeleccionarAsync(Estudiante e)
+    {
+        if (seleccionado?.Id != e.Id)
+        {
+            nueva = new NotaSeguimiento();
+            pendientes.Clear();
+        }
+        seleccionado = e;
+        await CargarSeguimientoAsync();
+    }
+
+    private async Task CargarSeguimientoAsync()
+    {
+        if (seleccionado == null) return;
+        notas = await Seguimiento.ListarAsync(seleccionado.Id);
+        citasEstudiante = (await ServicioCitas.BuscarAsync(new CitaFiltro { EstudianteId = seleccionado.Id }))
+            .OrderBy(c => c.InicioCompleto).ToList();
+
+        miniaturas = new Dictionary<int, string?>();
+        foreach (var a in notas.SelectMany(n => n.Adjuntos).Where(a => a.EsImagen))
+            miniaturas[a.Id] = await Seguimiento.ObtenerMiniaturaAsync(a.RutaLocal, a.ContentType);
+    }
+
+    // ---------- Adjuntos ----------
+
+    private async Task SeleccionarArchivosAsync() => await AgregarAsync(() => Media.SeleccionarArchivosAsync());
+
+    private async Task TomarFotoAsync() => await AgregarAsync(async () => await Media.TomarFotoAsync() is { } f ? new[] { f } : Array.Empty<ArchivoSeleccionado>());
+
+    private async Task GrabarVideoAsync() => await AgregarAsync(async () => await Media.GrabarVideoAsync() is { } f ? new[] { f } : Array.Empty<ArchivoSeleccionado>());
+
+    private async Task AgregarAsync(Func<Task<IReadOnlyList<ArchivoSeleccionado>>> origen)
+    {
+        try
+        {
+            foreach (var archivo in await origen())
+                pendientes.Add(new AdjuntoPendiente(archivo, await Seguimiento.ObtenerMiniaturaAsync(archivo.RutaTemporal, archivo.ContentType)));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Acciones.Notificar(false, "Permiso denegado", "Habilite el acceso a la cámara o a la galería en la configuración del dispositivo.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Acciones.Notificar(false, "No se pudo adjuntar", ex.Message);
+        }
+    }
+
+    // ---------- Notas ----------
+
+    private async Task GuardarNotaAsync(bool enviar)
+    {
+        if (seleccionado == null) return;
+        guardando = true;
+        try
+        {
+            // Si se va a enviar, primero se confirma (antes de persistir) para no dejar notas a medias.
+            if (enviar && !await ConfirmarEnvioAsync(nueva.Titulo, nueva.Texto, pendientes.Count, pendientes.Sum(p => p.Archivo.TamanoBytes)))
+                return;
+
+            nueva.EstudianteId = seleccionado.Id;
+            var resultado = await Seguimiento.GuardarNotaAsync(nueva, pendientes.Select(p => p.Archivo));
+            if (!resultado.Exito)
+            {
+                Acciones.Notificar(false, "No se guardó la nota", resultado.Mensaje);
+                return;
+            }
+
+            if (enviar) await EnviarAsync(resultado.Valor!.Id);
+            else Acciones.Notificar(true, "Nota guardada", "El seguimiento quedó registrado como borrador.");
+
+            nueva = new NotaSeguimiento();
+            pendientes.Clear();
+            await CargarSeguimientoAsync();
+        }
+        finally { guardando = false; }
+    }
+
+    private async Task EnviarConDobleConfirmacionAsync(NotaSeguimiento n)
+    {
+        if (!await ConfirmarEnvioAsync(n.Titulo, n.Texto, n.Adjuntos.Count, n.Adjuntos.Sum(a => a.TamanoBytes))) return;
+        await EnviarAsync(n.Id);
+        await CargarSeguimientoAsync();
+    }
+
+    /// <summary>Doble confirmación obligatoria: (1) alerta de seguridad y (2) resumen con casilla de verificación.</summary>
+    private async Task<bool> ConfirmarEnvioAsync(string titulo, string texto, int adjuntos, long tamano)
+    {
+        var est = seleccionado!;
+        if (string.IsNullOrWhiteSpace(texto) && adjuntos == 0)
+        {
+            Acciones.Notificar(false, "Nada que enviar", "Escriba una nota o adjunte evidencia.");
+            return false;
+        }
+
+        var primera = await Dialogos.Confirm(
+            $"¿Desea enviar este seguimiento a {est.NombreCompleto} ({est.Correo})?",
+            "Confirmación 1 de 2",
+            new ConfirmOptions { OkButtonText = "Continuar", CancelButtonText = "Cancelar" });
+        if (primera != true) return false;
+
+        var segunda = await Dialogos.OpenAsync<ConfirmacionEnvioDialog>("Confirmación 2 de 2 · Revisar y enviar",
+            new Dictionary<string, object?>
+            {
+                [nameof(ConfirmacionEnvioDialog.Estudiante)] = est.NombreCompleto,
+                [nameof(ConfirmacionEnvioDialog.Correo)] = est.Correo,
+                [nameof(ConfirmacionEnvioDialog.Titulo)] = titulo,
+                [nameof(ConfirmacionEnvioDialog.Texto)] = texto,
+                [nameof(ConfirmacionEnvioDialog.Adjuntos)] = adjuntos,
+                [nameof(ConfirmacionEnvioDialog.TamanoAdjuntos)] = tamano
+            },
+            new DialogOptions { Width = "520px", ShowClose = false, CloseDialogOnEsc = false });
+        return segunda is true;
+    }
+
+    private async Task EnviarAsync(int notaId)
+    {
+        var r = await Seguimiento.EnviarAsync(notaId);
+        Acciones.Notificar(r.Exito, r.Exito ? (r.Simulado ? "Envío simulado" : "Seguimiento enviado") : "No se envió", r.Mensaje);
+    }
+
+    private async Task EliminarNotaAsync(NotaSeguimiento n)
+    {
+        var confirmar = await Dialogos.Confirm("¿Eliminar esta nota y sus archivos adjuntos?", "Eliminar nota",
+            new ConfirmOptions { OkButtonText = "Eliminar", CancelButtonText = "Cancelar" });
+        if (confirmar != true) return;
+        await Seguimiento.EliminarNotaAsync(n.Id);
+        await CargarSeguimientoAsync();
+    }
+
+    private async Task EliminarAdjuntoAsync(AdjuntoSeguimiento a)
+    {
+        var confirmar = await Dialogos.Confirm($"¿Eliminar el archivo \"{a.NombreArchivo}\"?", "Eliminar archivo",
+            new ConfirmOptions { OkButtonText = "Eliminar", CancelButtonText = "Cancelar" });
+        if (confirmar != true) return;
+        await Seguimiento.EliminarAdjuntoAsync(a.Id);
+        await CargarSeguimientoAsync();
+    }
+
+    // ---------- Comunicación ----------
+
+    private async Task CorreoDirectoAsync() =>
+        await Dialogos.OpenAsync<MensajeDirectoDialog>("Correo directo",
+            new Dictionary<string, object?> { [nameof(MensajeDirectoDialog.Estudiante)] = seleccionado },
+            new DialogOptions { Width = "560px" });
+
+    private async Task WhatsAppAsync()
+    {
+        var r = await Canales.AbrirWhatsAppAsync(seleccionado!.Telefono, $"Hola {seleccionado.NombreCompleto.Split(' ')[0]}, le escribe su instructor de manejo. ");
+        if (!r.Exito) Acciones.Notificar(false, "WhatsApp", r.Mensaje);
+    }
+
+    private async Task EditarEstudianteAsync(Estudiante? e)
+    {
+        var resultado = await Dialogos.OpenAsync<EstudianteFormDialog>(e == null ? "Nuevo estudiante" : "Editar estudiante",
+            new Dictionary<string, object?> { [nameof(EstudianteFormDialog.Estudiante)] = e },
+            new DialogOptions { Width = "520px" });
+        if (resultado is not Estudiante guardado) return;
+
+        estudiantes = await Estudiantes.BuscarAsync();
+        seleccionado = estudiantes.FirstOrDefault(x => x.Id == guardado.Id);
+        await CargarSeguimientoAsync();
+    }
+}

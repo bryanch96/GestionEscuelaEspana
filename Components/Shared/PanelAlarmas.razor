@@ -1,0 +1,127 @@
+@* Configuración de temporizadores (cuenta regresiva) y alarmas (hora específica). *@
+@implements IDisposable
+@inject IAlarmaService Alarmas
+@inject NotificationService Notificaciones
+
+<div class="panel-alarmas">
+    <div class="herramienta-titulo">
+        <span><span class="ico">alarm</span> Alarmas y temporizadores</span>
+        <button class="btn-cerrar" title="Cerrar" @onclick="OnCerrar"><span class="ico">close</span></button>
+    </div>
+
+    <div class="segmentado">
+        <button class="@(modoAlarma ? "" : "activo")" @onclick="() => modoAlarma = false"><span class="ico">timer</span> Temporizador</button>
+        <button class="@(modoAlarma ? "activo" : "")" @onclick="() => modoAlarma = true"><span class="ico">alarm_add</span> Alarma</button>
+    </div>
+
+    @if (!modoAlarma)
+    {
+        <div class="presets">
+            @foreach (var minutos in new[] { 1, 5, 10, 15, 30, 45, 60, 90 })
+            {
+                var m = minutos;
+                <button class="chip" @onclick="() => IniciarTemporizador(TimeSpan.FromMinutes(m))">@(m < 60 ? $"{m} min" : $"{m / 60.0:0.#} h")</button>
+            }
+        </div>
+        <div class="duracion-personalizada">
+            <label>h<input type="number" min="0" max="23" class="form-control form-control-sm" @bind="horas" /></label>
+            <label>min<input type="number" min="0" max="59" class="form-control form-control-sm" @bind="minutosPers" /></label>
+            <label>s<input type="number" min="0" max="59" class="form-control form-control-sm" @bind="segundos" /></label>
+        </div>
+        <input class="form-control form-control-sm mb-2" placeholder="Etiqueta (opcional): ej. Fin de clase práctica" @bind="etiqueta" maxlength="60" />
+        <button class="btn btn-primary btn-sm w-100" @onclick="IniciarPersonalizado"><span class="ico">play_arrow</span> Iniciar temporizador</button>
+    }
+    else
+    {
+        <div class="d-flex gap-2 mb-2">
+            <input type="time" class="form-control form-control-sm" @bind="horaAlarma" />
+        </div>
+        <input class="form-control form-control-sm mb-2" placeholder="Etiqueta (opcional): ej. Llamar al cliente" @bind="etiqueta" maxlength="60" />
+        <button class="btn btn-primary btn-sm w-100" @onclick="ProgramarAlarma"><span class="ico">alarm_on</span> Programar alarma</button>
+    }
+
+    <div class="lista-recordatorios">
+        @if (Alarmas.Recordatorios.Count == 0)
+        {
+            <p class="text-muted small text-center my-2">No hay alarmas ni temporizadores activos.</p>
+        }
+        @foreach (var r in Alarmas.Recordatorios)
+        {
+            var ahora = DateTime.Now;
+            <div class="recordatorio @(r.Sonando ? "sonando" : "")">
+                <span class="ico">@(r.Tipo == TipoRecordatorio.Alarma ? "alarm" : "timer")</span>
+                <div class="flex-grow-1">
+                    <div class="d-flex justify-content-between">
+                        <strong>@r.Etiqueta</strong>
+                        <span class="tiempo">
+                            @(r.Tipo == TipoRecordatorio.Alarma ? r.Vence.ToString("h:mm tt", Formato.Cultura) : Formato.Duracion(r.Restante(ahora)))
+                        </span>
+                    </div>
+                    @if (r.Tipo == TipoRecordatorio.Temporizador)
+                    {
+                        <div class="progreso"><span style="width:@((r.Progreso(ahora) * 100).ToString("0", CultureInfo.InvariantCulture))%"></span></div>
+                    }
+                    else
+                    {
+                        <small class="text-muted">Suena en @Formato.Duracion(r.Restante(ahora))</small>
+                    }
+                </div>
+                @if (r.Tipo == TipoRecordatorio.Temporizador && !r.Sonando)
+                {
+                    <button class="btn-icono" title="@(r.Pausado ? "Reanudar" : "Pausar")" @onclick="() => AlternarPausa(r)">
+                        <span class="ico">@(r.Pausado ? "play_arrow" : "pause")</span>
+                    </button>
+                }
+                <button class="btn-icono peligro" title="Eliminar" @onclick="() => Alarmas.Eliminar(r.Id)"><span class="ico">delete</span></button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnCerrar { get; set; }
+
+    private bool modoAlarma;
+    private int horas;
+    private int minutosPers = 20;
+    private int segundos;
+    private string etiqueta = string.Empty;
+    private TimeOnly horaAlarma = TimeOnly.FromDateTime(DateTime.Now.AddMinutes(30));
+
+    protected override void OnInitialized() => Alarmas.Tick += Refrescar;
+
+    private void Refrescar() => InvokeAsync(StateHasChanged);
+
+    private void IniciarTemporizador(TimeSpan duracion)
+    {
+        Alarmas.AgregarTemporizador(duracion, etiqueta);
+        Notificaciones.Notify(NotificationSeverity.Info, "Temporizador iniciado", $"Sonará en {Formato.Duracion(duracion)}.");
+        etiqueta = string.Empty;
+    }
+
+    private void IniciarPersonalizado()
+    {
+        var duracion = new TimeSpan(Math.Clamp(horas, 0, 23), Math.Clamp(minutosPers, 0, 59), Math.Clamp(segundos, 0, 59));
+        if (duracion <= TimeSpan.Zero)
+        {
+            Notificaciones.Notify(NotificationSeverity.Warning, "Duración inválida", "Indique al menos un segundo.");
+            return;
+        }
+        IniciarTemporizador(duracion);
+    }
+
+    private void ProgramarAlarma()
+    {
+        var r = Alarmas.AgregarAlarma(horaAlarma.ToTimeSpan(), etiqueta);
+        Notificaciones.Notify(NotificationSeverity.Info, "Alarma programada",
+            $"{Formato.DiaRelativo(r.Vence)} a las {r.Vence.ToString("h:mm tt", Formato.Cultura)}.");
+        etiqueta = string.Empty;
+    }
+
+    private void AlternarPausa(Recordatorio r)
+    {
+        if (r.Pausado) Alarmas.Reanudar(r.Id); else Alarmas.Pausar(r.Id);
+    }
+
+    public void Dispose() => Alarmas.Tick -= Refrescar;
+}

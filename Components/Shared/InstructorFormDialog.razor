@@ -1,0 +1,163 @@
+@* Formulario completo del instructor: datos personales, contacto de emergencia, datos laborales y disponibilidad. *@
+@inject IInstructorService Instructores
+@inject DialogService Dialogos
+
+<EditForm Model="modelo" OnSubmit="GuardarAsync">
+    @if (errores.Count > 0)
+    {
+        <div class="alert alert-danger py-2">
+            @foreach (var e in errores) { <div>@e</div> }
+        </div>
+    }
+
+    <fieldset class="form-seccion">
+        <legend><span class="ico">person</span> Datos personales</legend>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Nombre completo *</label>
+                <input class="form-control" @bind="modelo.Nombre" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Identificación (cédula)</label>
+                <input class="form-control" @bind="modelo.Identificacion" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Teléfono *</label>
+                <input class="form-control" type="tel" @bind="modelo.Telefono" placeholder="8888-8888" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Correo electrónico</label>
+                <input class="form-control" type="email" @bind="modelo.Correo" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Contacto de emergencia</label>
+                <input class="form-control" @bind="modelo.ContactoEmergenciaNombre" placeholder="Nombre" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label">Teléfono de emergencia</label>
+                <input class="form-control" type="tel" @bind="modelo.ContactoEmergenciaTelefono" />
+            </div>
+        </div>
+    </fieldset>
+
+    <fieldset class="form-seccion">
+        <legend><span class="ico">work</span> Datos laborales</legend>
+        <div class="row g-3">
+            <div class="col-12">
+                <label class="form-label">Categorías de licencia que imparte *</label>
+                <div class="chips-seleccion">
+                    @foreach (var cat in CategoriasLicencia.Todas)
+                    {
+                        var c = cat;
+                        <button type="button" class="chip @(categorias.Contains(c) ? "seleccionado" : "")" @onclick="() => Alternar(categorias, c)">@c</button>
+                    }
+                </div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Vencimiento de licencia</label>
+                <input class="form-control" type="date" @bind="modelo.VencimientoLicencia" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Fecha de ingreso</label>
+                <input class="form-control" type="date" @bind="modelo.FechaIngreso" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Estado</label>
+                <select class="form-select" @bind="modelo.Estado">
+                    @foreach (var e in EstadosInstructor.Todos) { <option value="@e">@e</option> }
+                </select>
+            </div>
+        </div>
+    </fieldset>
+
+    <fieldset class="form-seccion">
+        <legend><span class="ico">schedule</span> Disponibilidad</legend>
+        <div class="row g-3">
+            <div class="col-12">
+                <label class="form-label">Días laborales *</label>
+                <div class="chips-seleccion">
+                    @foreach (var dia in OrdenDias)
+                    {
+                        var d = dia;
+                        <button type="button" class="chip @(dias.Contains(d) ? "seleccionado" : "")" @onclick="() => Alternar(dias, d)">@Formato.NombreDia(d)</button>
+                    }
+                </div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Hora de entrada</label>
+                <input class="form-control" type="time" @bind="entrada" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Hora de salida</label>
+                <input class="form-control" type="time" @bind="salida" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Capacidad (citas/día)</label>
+                <input class="form-control" type="number" min="1" max="24" @bind="modelo.MaxCitasPorDia" />
+            </div>
+            <div class="col-12">
+                <label class="form-label">Notas internas</label>
+                <textarea class="form-control" rows="2" maxlength="500" @bind="modelo.Notas"></textarea>
+            </div>
+        </div>
+    </fieldset>
+
+    <div class="d-flex justify-content-end gap-2 mt-3">
+        <button type="button" class="btn btn-light" @onclick="() => Dialogos.Close(null)">Cancelar</button>
+        <button type="submit" class="btn btn-primary" disabled="@guardando"><span class="ico">save</span> Guardar</button>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter] public Instructor? Instructor { get; set; }
+
+    private static readonly DayOfWeek[] OrdenDias =
+        { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday };
+
+    private Instructor modelo = new();
+    private HashSet<string> categorias = new();
+    private HashSet<DayOfWeek> dias = new();
+    private TimeOnly entrada;
+    private TimeOnly salida;
+    private List<string> errores = new();
+    private bool guardando;
+
+    protected override void OnInitialized()
+    {
+        // Se edita una copia: si el usuario cancela, la lista original no cambia.
+        modelo = Instructor?.Clonar() ?? new Instructor { FechaIngreso = DateTime.Today };
+        categorias = modelo.Categorias.ToHashSet();
+        dias = modelo.Dias.ToHashSet();
+        entrada = TimeOnly.FromTimeSpan(modelo.HoraEntrada);
+        salida = TimeOnly.FromTimeSpan(modelo.HoraSalida);
+    }
+
+    private static void Alternar<T>(HashSet<T> conjunto, T valor)
+    {
+        if (!conjunto.Remove(valor)) conjunto.Add(valor);
+    }
+
+    private async Task GuardarAsync()
+    {
+        modelo.Categorias = CategoriasLicencia.Todas.Where(categorias.Contains).ToList();
+        modelo.Dias = dias.OrderBy(d => d).ToList();
+        modelo.HoraEntrada = entrada.ToTimeSpan();
+        modelo.HoraSalida = salida.ToTimeSpan();
+
+        errores = InstructorService.Validar(modelo);
+        if (errores.Count > 0) return;
+
+        guardando = true;
+        try
+        {
+            var resultado = await Instructores.GuardarAsync(modelo);
+            if (!resultado.Exito)
+            {
+                errores = new List<string> { resultado.Mensaje };
+                return;
+            }
+            Dialogos.Close(resultado.Valor);
+        }
+        finally { guardando = false; }
+    }
+}

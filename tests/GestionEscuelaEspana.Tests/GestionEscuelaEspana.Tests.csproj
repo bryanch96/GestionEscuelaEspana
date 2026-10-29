@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+      Pruebas unitarias de la lógica de negocio. El proyecto MAUI solo compila para Android/iOS/Mac/Windows,
+      por eso aquí se enlazan directamente los archivos independientes de la plataforma (Models, Data, Services).
+      Ejecutar con:  dotnet test tests/GestionEscuelaEspana.Tests
+    -->
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>false</IsPackable>
+        <RootNamespace>GestionEscuelaEspana.Tests</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="..\..\Models\**\*.cs" Link="App\Models\%(RecursiveDir)%(Filename)%(Extension)" />
+        <Compile Include="..\..\Data\**\*.cs" Link="App\Data\%(RecursiveDir)%(Filename)%(Extension)" />
+        <Compile Include="..\..\Services\**\*.cs" Link="App\Services\%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="MailKit" Version="4.18.2" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="8.0.33" />
+        <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+        <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+        <PackageReference Include="xunit" Version="2.9.2" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    </ItemGroup>
+
+</Project>

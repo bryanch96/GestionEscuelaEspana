@@ -1,0 +1,59 @@
+@* Correo directo al estudiante: se envía desde la app (SMTP) o se abre la app de correo del dispositivo. *@
+@inject ISeguimientoService Seguimiento
+@inject ICanalesComunicacion Canales
+@inject DialogService Dialogos
+@inject AccionesCita Acciones
+
+<div>
+    <p class="text-muted mb-2">Para: <strong>@Estudiante.NombreCompleto</strong> &lt;@Estudiante.Correo&gt;</p>
+    <div class="mb-2">
+        <label class="form-label">Asunto</label>
+        <input class="form-control" @bind="asunto" maxlength="120" />
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Mensaje</label>
+        <textarea class="form-control" rows="6" maxlength="4000" @bind="mensaje" @bind:event="oninput"></textarea>
+        <small class="text-muted">@mensaje.Length / 4000</small>
+    </div>
+    <div class="d-flex justify-content-between gap-2 flex-wrap">
+        <button class="btn btn-outline-secondary" @onclick="AbrirAppCorreoAsync" title="Abre el cliente de correo del dispositivo con el borrador">
+            <span class="ico">open_in_new</span> Abrir en mi app de correo
+        </button>
+        <div class="d-flex gap-2">
+            <button class="btn btn-light" @onclick="() => Dialogos.Close(false)">Cancelar</button>
+            <button class="btn btn-primary" disabled="@enviando" @onclick="EnviarAsync">
+                @if (enviando) { <span class="spinner-border spinner-border-sm me-1"></span> }
+                <span class="ico">send</span> Enviar
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Estudiante Estudiante { get; set; } = default!;
+
+    private string asunto = string.Empty;
+    private string mensaje = string.Empty;
+    private bool enviando;
+
+    protected override void OnInitialized() => asunto = "Mensaje de su instructor de manejo";
+
+    private async Task EnviarAsync()
+    {
+        enviando = true;
+        try
+        {
+            var r = await Seguimiento.EnviarMensajeDirectoAsync(Estudiante.Id, asunto, mensaje);
+            Acciones.Notificar(r.Exito, r.Exito ? (r.Simulado ? "Correo simulado" : "Correo enviado") : "No se envió", r.Mensaje);
+            if (r.Exito) Dialogos.Close(true);
+        }
+        finally { enviando = false; }
+    }
+
+    private async Task AbrirAppCorreoAsync()
+    {
+        var r = await Canales.AbrirCorreoAsync(Estudiante.Correo, asunto, mensaje);
+        if (r.Exito) Dialogos.Close(true);
+        else Acciones.Notificar(false, "Correo", r.Mensaje);
+    }
+}

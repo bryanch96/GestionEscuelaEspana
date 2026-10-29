@@ -1,0 +1,36 @@
+@inject DialogService Dialogos
+
+<p>Indique el motivo de la cancelación de la cita de <strong>@Cliente</strong>:</p>
+<div class="presets mb-2">
+    @foreach (var m in motivosFrecuentes)
+    {
+        var motivo = m;
+        <button class="chip" @onclick="() => texto = motivo">@motivo</button>
+    }
+</div>
+<textarea class="form-control mb-3" rows="3" maxlength="300" @bind="texto" placeholder="Motivo (opcional)"></textarea>
+@if (TieneCorreo)
+{
+    <div class="form-check mb-3">
+        <input class="form-check-input" type="checkbox" id="notificar" @bind="notificar" />
+        <label class="form-check-label" for="notificar">Notificar la cancelación al cliente por correo</label>
+    </div>
+}
+<div class="d-flex justify-content-end gap-2">
+    <button class="btn btn-light" @onclick="() => Dialogos.Close(null)">Volver</button>
+    <button class="btn btn-danger" @onclick="Confirmar"><span class="ico">event_busy</span> Cancelar cita</button>
+</div>
+
+@code {
+    [Parameter] public string Cliente { get; set; } = string.Empty;
+    [Parameter] public bool TieneCorreo { get; set; }
+
+    /// <summary>Valor devuelto por el diálogo.</summary>
+    public sealed record Respuesta(string Motivo, bool Notificar);
+
+    private readonly string[] motivosFrecuentes = { "Solicitud del cliente", "Instructor no disponible", "Condiciones climáticas", "Vehículo en mantenimiento" };
+    private string texto = string.Empty;
+    private bool notificar = true;
+
+    private void Confirmar() => Dialogos.Close(new Respuesta(texto, notificar && TieneCorreo));
+}

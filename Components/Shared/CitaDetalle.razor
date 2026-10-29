@@ -1,0 +1,125 @@
+@inject ICitaService Citas
+@inject AccionesCita Acciones
+@inject ICanalesComunicacion Canales
+@inject DialogService Dialogos
+@inject NavigationManager Navigation
+@inject ISesionUsuario Sesion
+
+@if (cita == null)
+{
+    <div class="text-center p-4"><div class="spinner-border text-primary"></div></div>
+}
+else
+{
+    <div class="detalle-cita">
+        <div class="detalle-encabezado">
+            <div>
+                <h3>@cita.ClienteNombre</h3>
+                <div class="text-muted">
+                    <span class="ico">call</span> @cita.ClienteTelefono
+                    @if (!string.IsNullOrWhiteSpace(cita.ClienteCorreo))
+                    {
+                        <span class="ms-3"><span class="ico">mail</span> @cita.ClienteCorreo</span>
+                    }
+                </div>
+            </div>
+            <EstadoBadge Estado="@cita.Estado" />
+        </div>
+
+        <div class="detalle-grid">
+            <div><small>Fecha</small><strong>@Formato.FechaLarga(cita.Fecha)</strong></div>
+            <div><small>Horario</small><strong>@Formato.Rango(cita.HoraInicio, cita.HoraFin)</strong></div>
+            <div><small>Instructor</small><strong>@cita.InstructorNombre</strong></div>
+            <div><small>Plantel</small><strong>@cita.Plantel</strong></div>
+            <div><small>Vehículo</small><strong>@cita.TipoVehiculo</strong></div>
+            <div><small>Precio</small><strong>@Formato.Colones(cita.Precio)</strong></div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(cita.Observaciones))
+        {
+            <div class="detalle-nota"><span class="ico">sticky_note_2</span> @cita.Observaciones</div>
+        }
+        @if (cita.Estado == EstadosCita.Cancelada && !string.IsNullOrWhiteSpace(cita.MotivoCancelacion))
+        {
+            <div class="detalle-nota peligro"><span class="ico">event_busy</span> Motivo: @cita.MotivoCancelacion</div>
+        }
+
+        <div class="detalle-auditoria">
+            Creada @(cita.FechaCreacion == default ? "—" : cita.FechaCreacion.ToString("dd/MM/yyyy HH:mm"))
+            @(string.IsNullOrEmpty(cita.CreadoPor) ? "" : $"por {cita.CreadoPor}") ·
+            Confirmación por correo: @(cita.ConfirmacionEnviada ? "enviada" : "no enviada")
+        </div>
+
+        <div class="detalle-acciones">
+            <button class="btn btn-sm btn-success" @onclick="WhatsAppAsync"><span class="ico">chat</span> WhatsApp</button>
+            @if (!string.IsNullOrWhiteSpace(cita.ClienteCorreo))
+            {
+                <button class="btn btn-sm btn-outline-primary" @onclick="ReenviarAsync"><span class="ico">forward_to_inbox</span> Reenviar correo</button>
+            }
+        </div>
+
+        @if (PuedeGestionar)
+        {
+            <div class="detalle-acciones borde">
+                <button class="btn btn-sm btn-primary" @onclick="Editar"><span class="ico">edit</span> Modificar</button>
+                @if (cita.Estado == EstadosCita.Pendiente)
+                {
+                    <button class="btn btn-sm btn-outline-success" @onclick="() => CambiarAsync(EstadosCita.Completada)"><span class="ico">task_alt</span> Completada</button>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => CambiarAsync(EstadosCita.NoAsistio)"><span class="ico">person_off</span> No asistió</button>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="() => CambiarAsync(EstadosCita.Cancelada)"><span class="ico">event_busy</span> Cancelar cita</button>
+                }
+                else
+                {
+                    <button class="btn btn-sm btn-outline-warning" @onclick="() => CambiarAsync(EstadosCita.Pendiente)"><span class="ico">undo</span> Reabrir</button>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="Reagendar"><span class="ico">event_repeat</span> Reagendar</button>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public int CitaId { get; set; }
+
+    private Cita? cita;
+    private bool huboCambios;
+
+    private bool PuedeGestionar => Sesion.TieneRol(Roles.Administrador, Roles.Recepcionista);
+
+    protected override async Task OnInitializedAsync() => await CargarAsync();
+
+    private async Task CargarAsync()
+    {
+        cita = await Citas.ObtenerAsync(CitaId);
+        if (cita == null)
+        {
+            Acciones.Notificar(false, "Cita no encontrada", "Es posible que haya sido eliminada.");
+            Dialogos.Close(true);
+        }
+    }
+
+    private async Task CambiarAsync(string estado)
+    {
+        if (cita != null && await Acciones.CambiarEstadoAsync(cita, estado))
+        {
+            huboCambios = true;
+            Dialogos.Close(huboCambios);
+        }
+    }
+
+    private void Editar()
+    {
+        Dialogos.Close(huboCambios);
+        Navigation.NavigateTo($"/citas/{CitaId}");
+    }
+
+    private void Reagendar()
+    {
+        Dialogos.Close(huboCambios);
+        Navigation.NavigateTo($"/citas?duplicar={CitaId}");
+    }
+
+    private Task WhatsAppAsync() => Acciones.WhatsAppRecordatorioAsync(cita!);
+
+    private Task ReenviarAsync() => Acciones.ReenviarCorreoAsync(cita!);
+}

@@ -1,0 +1,64 @@
+@inject IEstudianteService Estudiantes
+@inject DialogService Dialogos
+
+<EditForm Model="modelo" OnSubmit="GuardarAsync">
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger py-2">@error</div>
+    }
+    <div class="row g-3">
+        <div class="col-12">
+            <label class="form-label">Nombre completo *</label>
+            <input class="form-control" @bind="modelo.NombreCompleto" />
+        </div>
+        <div class="col-md-6">
+            <label class="form-label">Identificación</label>
+            <input class="form-control" @bind="modelo.Identificacion" />
+        </div>
+        <div class="col-md-6">
+            <label class="form-label">Teléfono (WhatsApp)</label>
+            <input class="form-control" type="tel" @bind="modelo.Telefono" placeholder="8888-8888" />
+        </div>
+        <div class="col-12">
+            <label class="form-label">Correo electrónico</label>
+            <input class="form-control" type="email" @bind="modelo.Correo" />
+        </div>
+        <div class="col-12">
+            <label class="form-label">Notas generales</label>
+            <textarea class="form-control" rows="2" maxlength="500" @bind="modelo.Notas"></textarea>
+        </div>
+        @if (modelo.Id != 0)
+        {
+            <div class="col-12">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="activo" @bind="modelo.Activo" />
+                    <label class="form-check-label" for="activo">Estudiante activo</label>
+                </div>
+            </div>
+        }
+    </div>
+    <div class="d-flex justify-content-end gap-2 mt-3">
+        <button type="button" class="btn btn-light" @onclick="() => Dialogos.Close(null)">Cancelar</button>
+        <button type="submit" class="btn btn-primary"><span class="ico">save</span> Guardar</button>
+    </div>
+</EditForm>
+
+@code {
+    [Parameter] public Estudiante? Estudiante { get; set; }
+
+    private Estudiante modelo = new();
+    private string? error;
+
+    protected override void OnInitialized() => modelo = Estudiante?.Clonar() ?? new Estudiante();
+
+    private async Task GuardarAsync()
+    {
+        var resultado = await Estudiantes.GuardarAsync(modelo);
+        if (!resultado.Exito)
+        {
+            error = resultado.Mensaje;
+            return;
+        }
+        Dialogos.Close(resultado.Valor);
+    }
+}

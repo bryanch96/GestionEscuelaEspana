@@ -34,5 +34,18 @@
     </array>
     <key>XSAppIconAssets</key>
     <string>Assets.xcassets/appicon.appiconset</string>
+    <!-- Permisos de Profesor en Línea (fotos y videos de evaluación) -->
+    <key>NSCameraUsageDescription</key>
+    <string>Se usa la cámara para tomar fotografías y videos de evaluación de los estudiantes.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Se usa el micrófono para grabar el audio de los videos de evaluación.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Se accede a la galería para adjuntar fotografías y videos al seguimiento del estudiante.</string>
+    <!-- Esquemas que la app puede abrir directamente (WhatsApp y correo) -->
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>whatsapp</string>
+        <string>mailto</string>
+    </array>
 </dict>
 </plist>

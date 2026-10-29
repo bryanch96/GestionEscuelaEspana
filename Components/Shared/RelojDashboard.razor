@@ -1,0 +1,73 @@
+@* Reloj en vivo del dashboard con accesos a la calculadora y a las alarmas/temporizadores.
+   Se actualiza solo este componente cada segundo, sin re-renderizar todo el dashboard. *@
+@implements IDisposable
+@inject IAlarmaService Alarmas
+
+<div class="reloj-widget">
+    <div class="reloj-card" aria-live="off">
+        <div class="reloj-hora">
+            <span class="reloj-hhmm">@ahora.ToString("hh:mm", Formato.Cultura)</span>
+            <span class="reloj-lado">
+                <span class="reloj-seg">@ahora.ToString("ss")</span>
+                <span class="reloj-ampm">@(ahora.Hour < 12 ? "AM" : "PM")</span>
+            </span>
+        </div>
+        <div class="reloj-fecha">
+            <span class="ico">calendar_month</span>
+            @Formato.FechaLarga(ahora)
+        </div>
+    </div>
+
+    <div class="reloj-herramientas">
+        <button class="herramienta-btn @(panel == PanelAbierto.Calculadora ? "activo" : "")" title="Calculadora"
+                aria-label="Abrir calculadora" @onclick="() => Alternar(PanelAbierto.Calculadora)">
+            <span class="ico">calculate</span>
+        </button>
+        <button class="herramienta-btn @(panel == PanelAbierto.Alarmas ? "activo" : "")" title="Alarmas y temporizadores"
+                aria-label="Abrir alarmas y temporizadores" @onclick="() => Alternar(PanelAbierto.Alarmas)">
+            <span class="ico">alarm</span>
+            @if (Alarmas.Recordatorios.Count > 0)
+            {
+                <span class="contador">@Alarmas.Recordatorios.Count</span>
+            }
+        </button>
+    </div>
+
+    @if (panel != PanelAbierto.Ninguno)
+    {
+        <div class="popover-fondo" @onclick="() => panel = PanelAbierto.Ninguno"></div>
+        <div class="popover-herramienta">
+            @if (panel == PanelAbierto.Calculadora)
+            {
+                <Calculadora OnCerrar="() => panel = PanelAbierto.Ninguno" />
+            }
+            else
+            {
+                <PanelAlarmas OnCerrar="() => panel = PanelAbierto.Ninguno" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private enum PanelAbierto { Ninguno, Calculadora, Alarmas }
+
+    private DateTime ahora = DateTime.Now;
+    private PanelAbierto panel = PanelAbierto.Ninguno;
+    private System.Threading.Timer? timer;
+
+    protected override void OnInitialized()
+    {
+        // Se alinea al inicio de cada segundo para que el reloj no "salte".
+        var retraso = 1000 - DateTime.Now.Millisecond;
+        timer = new System.Threading.Timer(_ => InvokeAsync(() =>
+        {
+            ahora = DateTime.Now;
+            StateHasChanged();
+        }), null, retraso, 1000);
+    }
+
+    private void Alternar(PanelAbierto destino) => panel = panel == destino ? PanelAbierto.Ninguno : destino;
+
+    public void Dispose() => timer?.Dispose();
+}

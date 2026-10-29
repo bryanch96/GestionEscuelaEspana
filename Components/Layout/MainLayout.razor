@@ -1,17 +1,67 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
+@inject ISesionUsuario Sesion
+@inject IAuthService Auth
+@inject NavigationManager Navigation
+@inject DialogService Dialogos
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<AuthorizeView>
+    <Authorized>
+        <div class="page">
+            <div class="sidebar">
+                <NavMenu />
+            </div>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+            <main>
+                <div class="top-row px-4">
+                    <div class="usuario-chip">
+                        <span class="avatar">@Iniciales</span>
+                        <div class="usuario-datos">
+                            <strong>@Sesion.Actual?.NombreCompleto</strong>
+                            <small>@Sesion.Actual?.Rol</small>
+                        </div>
+                    </div>
+                    <button class="btn btn-sm btn-light" title="Cambiar contraseña" @onclick="CambiarPassword">
+                        <span class="ico">key</span><span class="d-none d-md-inline ms-1">Contraseña</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" title="Cerrar sesión" @onclick="CerrarSesion">
+                        <span class="ico">logout</span><span class="d-none d-md-inline ms-1">Salir</span>
+                    </button>
+                </div>
+
+                <article class="content px-4">
+                    @Body
+                </article>
+            </main>
         </div>
+        <NotificadorAlarmas />
+    </Authorized>
+    <NotAuthorized>
+        @Body
+    </NotAuthorized>
+</AuthorizeView>
 
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
-</div>
+<RadzenComponents />
+
+@code {
+    private string Iniciales
+    {
+        get
+        {
+            var partes = (Sesion.Actual?.NombreCompleto ?? "?").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return string.Concat(partes.Take(2).Select(p => char.ToUpperInvariant(p[0])));
+        }
+    }
+
+    private async Task CambiarPassword() =>
+        await Dialogos.OpenAsync<CambiarPasswordDialog>("Cambiar contraseña", new Dictionary<string, object?>(), new DialogOptions { Width = "440px" });
+
+    private async Task CerrarSesion()
+    {
+        var confirmar = await Dialogos.Confirm("¿Desea cerrar la sesión?", "Cerrar sesión",
+            new ConfirmOptions { OkButtonText = "Cerrar sesión", CancelButtonText = "Cancelar" });
+        if (confirmar != true) return;
+
+        Auth.CerrarSesion();
+        Navigation.NavigateTo("/login", replace: true);
+    }
+}
